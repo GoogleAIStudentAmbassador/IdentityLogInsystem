@@ -1,0 +1,1307 @@
+﻿{
+    "openapi":  "3.1.0",
+    "info":  {
+                 "title":  "MoffyProfile API",
+                 "description":  "Discordã¦ã¼ã¶ã¼åäººæ\u0085å ±ç®¡ç \u0026 ãã­ãã£ã¼ã«ããã¯ã¨ã³ã",
+                 "version":  "1.0.0"
+             },
+    "paths":  {
+                  "/api/admin/login":  {
+                                           "post":  {
+                                                        "tags":  [
+                                                                     "Admin Auth"
+                                                                 ],
+                                                        "summary":  "Admin Login",
+                                                        "description":  "ç®¡çè\u0085ã­ã°ã¤ã³ã¨ã³ããã¤ã³ãã\nè¨­å®ããããã¹ã¿ã¼ç®¡çè\u0085ãã¹ã¯ã¼ããæ¤è¨¼ããã»ãã·ã§ã³ãã¼ã¯ã³ãçºè¡ãã¾ãã",
+                                                        "operationId":  "admin_login_api_admin_login_post",
+                                                        "requestBody":  {
+                                                                            "content":  {
+                                                                                            "application/json":  {
+                                                                                                                     "schema":  {
+                                                                                                                                    "$ref":  "#/components/schemas/AdminLoginRequest"
+                                                                                                                                }
+                                                                                                                 }
+                                                                                        },
+                                                                            "required":  true
+                                                                        },
+                                                        "responses":  {
+                                                                          "200":  {
+                                                                                      "description":  "Successful Response",
+                                                                                      "content":  {
+                                                                                                      "application/json":  {
+                                                                                                                               "schema":  {
+                                                                                                                                              "$ref":  "#/components/schemas/AdminLoginResponse"
+                                                                                                                                          }
+                                                                                                                           }
+                                                                                                  }
+                                                                                  },
+                                                                          "422":  {
+                                                                                      "description":  "Validation Error",
+                                                                                      "content":  {
+                                                                                                      "application/json":  {
+                                                                                                                               "schema":  {
+                                                                                                                                              "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                          }
+                                                                                                                           }
+                                                                                                  }
+                                                                                  }
+                                                                      }
+                                                    }
+                                       },
+                  "/api/admin/me":  {
+                                        "get":  {
+                                                    "tags":  [
+                                                                 "Admin Auth"
+                                                             ],
+                                                    "summary":  "Verify Admin Session",
+                                                    "description":  "ç®¡çè\u0085ã»ãã·ã§ã³ã®æå¹æ§ãç¢ºèªãã¾ã",
+                                                    "operationId":  "verify_admin_session_api_admin_me_get",
+                                                    "responses":  {
+                                                                      "200":  {
+                                                                                  "description":  "Successful Response",
+                                                                                  "content":  {
+                                                                                                  "application/json":  {
+                                                                                                                           "schema":  {
+                                                                                                                                          "$ref":  "#/components/schemas/AdminVerifyResponse"
+                                                                                                                                      }
+                                                                                                                       }
+                                                                                              }
+                                                                              }
+                                                                  },
+                                                    "security":  [
+                                                                     {
+                                                                         "HTTPBearer":  [
+
+                                                                                        ]
+                                                                     }
+                                                                 ]
+                                                }
+                                    },
+                  "/api/status":  {
+                                      "get":  {
+                                                  "tags":  [
+                                                               "profiles"
+                                                           ],
+                                                  "summary":  "Get Db Status",
+                                                  "description":  "ç¾å¨ã®ãã¼ã¿ãã¼ã¹æ¥ç¶ç¶æ\u0085ï¼Firebase or ã­ã¼ã«ã«ãã©ã¼ã«ããã¯ï¼ãè¿ãã¾ã",
+                                                  "operationId":  "get_db_status_api_status_get",
+                                                  "responses":  {
+                                                                    "200":  {
+                                                                                "description":  "Successful Response",
+                                                                                "content":  {
+                                                                                                "application/json":  {
+                                                                                                                         "schema":  {
+                                                                                                                                        "$ref":  "#/components/schemas/StatusResponse"
+                                                                                                                                    }
+                                                                                                                     }
+                                                                                            }
+                                                                            }
+                                                                }
+                                              }
+                                  },
+                  "/api/profile":  {
+                                       "post":  {
+                                                    "tags":  [
+                                                                 "profiles"
+                                                             ],
+                                                    "summary":  "Create Or Update Profile",
+                                                    "description":  "Discord User IDããã­ãã£ã¼ã«åçããã¹ã¯ã¼ããåãåãã\nãã¹ã¯ã¼ããããã·ã¥åãã¦ãã¼ã¿ãã¼ã¹ã«ä¿ç®¡ãã¾ãã",
+                                                    "operationId":  "create_or_update_profile_api_profile_post",
+                                                    "requestBody":  {
+                                                                        "content":  {
+                                                                                        "multipart/form-data":  {
+                                                                                                                    "schema":  {
+                                                                                                                                   "$ref":  "#/components/schemas/Body_create_or_update_profile_api_profile_post"
+                                                                                                                               }
+                                                                                                                }
+                                                                                    },
+                                                                        "required":  true
+                                                                    },
+                                                    "responses":  {
+                                                                      "200":  {
+                                                                                  "description":  "Successful Response",
+                                                                                  "content":  {
+                                                                                                  "application/json":  {
+                                                                                                                           "schema":  {
+                                                                                                                                          "$ref":  "#/components/schemas/ProfileResponse"
+                                                                                                                                      }
+                                                                                                                       }
+                                                                                              }
+                                                                              },
+                                                                      "422":  {
+                                                                                  "description":  "Validation Error",
+                                                                                  "content":  {
+                                                                                                  "application/json":  {
+                                                                                                                           "schema":  {
+                                                                                                                                          "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                      }
+                                                                                                                       }
+                                                                                              }
+                                                                              }
+                                                                  },
+                                                    "security":  [
+                                                                     {
+                                                                         "HTTPBearer":  [
+
+                                                                                        ]
+                                                                     }
+                                                                 ]
+                                                }
+                                   },
+                  "/api/profiles":  {
+                                        "get":  {
+                                                    "tags":  [
+                                                                 "profiles"
+                                                             ],
+                                                    "summary":  "List Profiles",
+                                                    "description":  "ä¿ç®¡ããã¦ãããã­ãã£ã¼ã«ä¸è¦§ãåå¾ãã¾ãï¼ãã¹ã¯ã¼ãããã·ã¥ã¯ç§å¿ï¼",
+                                                    "operationId":  "list_profiles_api_profiles_get",
+                                                    "responses":  {
+                                                                      "200":  {
+                                                                                  "description":  "Successful Response",
+                                                                                  "content":  {
+                                                                                                  "application/json":  {
+                                                                                                                           "schema":  {
+                                                                                                                                          "items":  {
+                                                                                                                                                        "$ref":  "#/components/schemas/ProfileResponse"
+                                                                                                                                                    },
+                                                                                                                                          "type":  "array",
+                                                                                                                                          "title":  "Response List Profiles Api Profiles Get"
+                                                                                                                                      }
+                                                                                                                       }
+                                                                                              }
+                                                                              }
+                                                                  },
+                                                    "security":  [
+                                                                     {
+                                                                         "HTTPBearer":  [
+
+                                                                                        ]
+                                                                     }
+                                                                 ]
+                                                }
+                                    },
+                  "/api/admin/keys":  {
+                                          "get":  {
+                                                      "tags":  [
+                                                                   "Admin API Keys"
+                                                               ],
+                                                      "summary":  "List Api Keys",
+                                                      "description":  "çºè¡æ¸ã¿ã®APIã­ã¼ä¸è¦§ãåå¾ãã¾ãï¼ã»ã­ã¥ãªãã£ã®ããã­ã¼å®ä½ã¨ããã·ã¥å¤ã¯é¤å¤ï¼",
+                                                      "operationId":  "list_api_keys_api_admin_keys_get",
+                                                      "responses":  {
+                                                                        "200":  {
+                                                                                    "description":  "Successful Response",
+                                                                                    "content":  {
+                                                                                                    "application/json":  {
+                                                                                                                             "schema":  {
+                                                                                                                                            "items":  {
+                                                                                                                                                          "$ref":  "#/components/schemas/ApiKeyPublicResponse"
+                                                                                                                                                      },
+                                                                                                                                            "type":  "array",
+                                                                                                                                            "title":  "Response List Api Keys Api Admin Keys Get"
+                                                                                                                                        }
+                                                                                                                         }
+                                                                                                }
+                                                                                }
+                                                                    },
+                                                      "security":  [
+                                                                       {
+                                                                           "HTTPBearer":  [
+
+                                                                                          ]
+                                                                       }
+                                                                   ]
+                                                  },
+                                          "post":  {
+                                                       "tags":  [
+                                                                    "Admin API Keys"
+                                                                ],
+                                                       "summary":  "Create New Api Key",
+                                                       "description":  "ææºãµã¼ãã¹ç¨ã®æ°ããAPIã­ã¼ãçºè¡ãã¾ãã\nâ» raw_key ã¯ãã®ã¬ã¹ãã³ã¹ã§ã®ã¿è¿å´ãããDBã«ã¯ããã·ã¥å¤ã®ã¿ãä¿ç®¡ããã¾ãã",
+                                                       "operationId":  "create_new_api_key_api_admin_keys_post",
+                                                       "requestBody":  {
+                                                                           "content":  {
+                                                                                           "application/json":  {
+                                                                                                                    "schema":  {
+                                                                                                                                   "$ref":  "#/components/schemas/CreateKeyRequest"
+                                                                                                                               }
+                                                                                                                }
+                                                                                       },
+                                                                           "required":  true
+                                                                       },
+                                                       "responses":  {
+                                                                         "201":  {
+                                                                                     "description":  "Successful Response",
+                                                                                     "content":  {
+                                                                                                     "application/json":  {
+                                                                                                                              "schema":  {
+                                                                                                                                             "$ref":  "#/components/schemas/CreateKeyResponse"
+                                                                                                                                         }
+                                                                                                                          }
+                                                                                                 }
+                                                                                 },
+                                                                         "422":  {
+                                                                                     "description":  "Validation Error",
+                                                                                     "content":  {
+                                                                                                     "application/json":  {
+                                                                                                                              "schema":  {
+                                                                                                                                             "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                         }
+                                                                                                                          }
+                                                                                                 }
+                                                                                 }
+                                                                     },
+                                                       "security":  [
+                                                                        {
+                                                                            "HTTPBearer":  [
+
+                                                                                           ]
+                                                                        }
+                                                                    ]
+                                                   }
+                                      },
+                  "/api/admin/keys/{key_id}/toggle":  {
+                                                          "patch":  {
+                                                                        "tags":  [
+                                                                                     "Admin API Keys"
+                                                                                 ],
+                                                                        "summary":  "Toggle Api Key",
+                                                                        "description":  "APIã­ã¼ã®æå¹/ç¡å¹ç¶æ\u0085ï¼å¤±å¹è¨­å®ï¼ãåãæ¿ãã¾ã",
+                                                                        "operationId":  "toggle_api_key_api_admin_keys__key_id__toggle_patch",
+                                                                        "security":  [
+                                                                                         {
+                                                                                             "HTTPBearer":  [
+
+                                                                                                            ]
+                                                                                         }
+                                                                                     ],
+                                                                        "parameters":  [
+                                                                                           {
+                                                                                               "name":  "key_id",
+                                                                                               "in":  "path",
+                                                                                               "required":  true,
+                                                                                               "schema":  {
+                                                                                                              "type":  "string",
+                                                                                                              "title":  "Key Id"
+                                                                                                          }
+                                                                                           }
+                                                                                       ],
+                                                                        "requestBody":  {
+                                                                                            "required":  true,
+                                                                                            "content":  {
+                                                                                                            "application/json":  {
+                                                                                                                                     "schema":  {
+                                                                                                                                                    "$ref":  "#/components/schemas/ToggleKeyRequest"
+                                                                                                                                                }
+                                                                                                                                 }
+                                                                                                        }
+                                                                                        },
+                                                                        "responses":  {
+                                                                                          "200":  {
+                                                                                                      "description":  "Successful Response",
+                                                                                                      "content":  {
+                                                                                                                      "application/json":  {
+                                                                                                                                               "schema":  {
+                                                                                                                                                              "$ref":  "#/components/schemas/ApiKeyPublicResponse"
+                                                                                                                                                          }
+                                                                                                                                           }
+                                                                                                                  }
+                                                                                                  },
+                                                                                          "422":  {
+                                                                                                      "description":  "Validation Error",
+                                                                                                      "content":  {
+                                                                                                                      "application/json":  {
+                                                                                                                                               "schema":  {
+                                                                                                                                                              "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                          }
+                                                                                                                                           }
+                                                                                                                  }
+                                                                                                  }
+                                                                                      }
+                                                                    }
+                                                      },
+                  "/api/admin/keys/{key_id}/permission":  {
+                                                              "patch":  {
+                                                                            "tags":  [
+                                                                                         "Admin API Keys"
+                                                                                     ],
+                                                                            "summary":  "Update Api Key Permission",
+                                                                            "description":  "APIã­ã¼ã®æ¨©éã©ã³ã¯ï¼ã¦ã¼ã¶ã¼ã¢ã«ã¦ã³ãè¿½å ã®è¨±å¯/å¦ï¼ãå¾ããå¤æ´ãã¾ãã",
+                                                                            "operationId":  "update_api_key_permission_api_admin_keys__key_id__permission_patch",
+                                                                            "security":  [
+                                                                                             {
+                                                                                                 "HTTPBearer":  [
+
+                                                                                                                ]
+                                                                                             }
+                                                                                         ],
+                                                                            "parameters":  [
+                                                                                               {
+                                                                                                   "name":  "key_id",
+                                                                                                   "in":  "path",
+                                                                                                   "required":  true,
+                                                                                                   "schema":  {
+                                                                                                                  "type":  "string",
+                                                                                                                  "title":  "Key Id"
+                                                                                                              }
+                                                                                               }
+                                                                                           ],
+                                                                            "requestBody":  {
+                                                                                                "required":  true,
+                                                                                                "content":  {
+                                                                                                                "application/json":  {
+                                                                                                                                         "schema":  {
+                                                                                                                                                        "$ref":  "#/components/schemas/UpdatePermissionRequest"
+                                                                                                                                                    }
+                                                                                                                                     }
+                                                                                                            }
+                                                                                            },
+                                                                            "responses":  {
+                                                                                              "200":  {
+                                                                                                          "description":  "Successful Response",
+                                                                                                          "content":  {
+                                                                                                                          "application/json":  {
+                                                                                                                                                   "schema":  {
+                                                                                                                                                                  "$ref":  "#/components/schemas/ApiKeyPublicResponse"
+                                                                                                                                                              }
+                                                                                                                                               }
+                                                                                                                      }
+                                                                                                      },
+                                                                                              "422":  {
+                                                                                                          "description":  "Validation Error",
+                                                                                                          "content":  {
+                                                                                                                          "application/json":  {
+                                                                                                                                                   "schema":  {
+                                                                                                                                                                  "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                              }
+                                                                                                                                               }
+                                                                                                                      }
+                                                                                                      }
+                                                                                          }
+                                                                        }
+                                                          },
+                  "/api/admin/keys/{key_id}":  {
+                                                   "delete":  {
+                                                                  "tags":  [
+                                                                               "Admin API Keys"
+                                                                           ],
+                                                                  "summary":  "Delete Api Key",
+                                                                  "description":  "APIã­ã¼ãå®å\u0085¨ã«åé¤ãã¾ã",
+                                                                  "operationId":  "delete_api_key_api_admin_keys__key_id__delete",
+                                                                  "security":  [
+                                                                                   {
+                                                                                       "HTTPBearer":  [
+
+                                                                                                      ]
+                                                                                   }
+                                                                               ],
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "key_id",
+                                                                                         "in":  "path",
+                                                                                         "required":  true,
+                                                                                         "schema":  {
+                                                                                                        "type":  "string",
+                                                                                                        "title":  "Key Id"
+                                                                                                    }
+                                                                                     }
+                                                                                 ],
+                                                                  "responses":  {
+                                                                                    "204":  {
+                                                                                                "description":  "Successful Response"
+                                                                                            },
+                                                                                    "422":  {
+                                                                                                "description":  "Validation Error",
+                                                                                                "content":  {
+                                                                                                                "application/json":  {
+                                                                                                                                         "schema":  {
+                                                                                                                                                        "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                    }
+                                                                                                                                     }
+                                                                                                            }
+                                                                                            }
+                                                                                }
+                                                              }
+                                               },
+                  "/api/v1/ping":  {
+                                       "get":  {
+                                                   "tags":  [
+                                                                "Partner Public API"
+                                                            ],
+                                                   "summary":  "Partner Ping",
+                                                   "description":  "ææºãµã¼ãã¹ç¨ã®APIã­ã¼çéç¢ºèªã¨ã³ããã¤ã³ãã§ãã\nã­ã¼ã®æå¹æ§ã¨ãã¦ã¼ã¶ã¼è¿½å æ¨©éï¼can_create_userï¼ã®ä»ä¸ç¶æ³ãç¢ºèªã§ãã¾ãã",
+                                                   "operationId":  "partner_ping_api_v1_ping_get",
+                                                   "responses":  {
+                                                                     "200":  {
+                                                                                 "description":  "Successful Response",
+                                                                                 "content":  {
+                                                                                                 "application/json":  {
+                                                                                                                          "schema":  {
+                                                                                                                                         "$ref":  "#/components/schemas/PartnerPingResponse"
+                                                                                                                                     }
+                                                                                                                      }
+                                                                                             }
+                                                                             }
+                                                                 },
+                                                   "security":  [
+                                                                    {
+                                                                        "APIKeyHeader":  [
+
+                                                                                         ]
+                                                                    },
+                                                                    {
+                                                                        "APIKeyQuery":  [
+
+                                                                                        ]
+                                                                    }
+                                                                ]
+                                               }
+                                   },
+                  "/api/v1/getProfile":  {
+                                             "post":  {
+                                                          "tags":  [
+                                                                       "Partner Public API"
+                                                                   ],
+                                                          "summary":  "Post Get Profile",
+                                                          "description":  "ãæ¨å¥¨ããã­ãã£ã¼ã«åå¾ã¨ã³ããã¤ã³ãï¼POSTå½¢å¼ã»é«æ¡å¼µæ§ï¼ã\nå¼æ°ã¨ãã¦ Discord IDï¼ã¾ãã¯å°æ¥ã® Google IDï¼ã¨ API ã­ã¼ãæ¸¡ãã¦ãã­ãã£ã¼ã«ãåå¾ãã¾ãã\nâ» API ã­ã¼ã¯ \u0027X-API-Key\u0027 ãããã¼ãã¾ãã¯ãªã¯ã¨ã¹ãããã£ã® \u0027api_key\u0027 ãã£ã¼ã«ãã®ã©ã¡ãã§ãæå®å¯è½ã§ãã",
+                                                          "operationId":  "post_get_profile_api_v1_getProfile_post",
+                                                          "security":  [
+                                                                           {
+                                                                               "APIKeyHeader":  [
+
+                                                                                                ]
+                                                                           }
+                                                                       ],
+                                                          "requestBody":  {
+                                                                              "required":  true,
+                                                                              "content":  {
+                                                                                              "application/json":  {
+                                                                                                                       "schema":  {
+                                                                                                                                      "$ref":  "#/components/schemas/GetProfileRequest"
+                                                                                                                                  }
+                                                                                                                   }
+                                                                                          }
+                                                                          },
+                                                          "responses":  {
+                                                                            "200":  {
+                                                                                        "description":  "Successful Response",
+                                                                                        "content":  {
+                                                                                                        "application/json":  {
+                                                                                                                                 "schema":  {
+                                                                                                                                                "$ref":  "#/components/schemas/PartnerProfileResponse"
+                                                                                                                                            }
+                                                                                                                             }
+                                                                                                    }
+                                                                                    },
+                                                                            "422":  {
+                                                                                        "description":  "Validation Error",
+                                                                                        "content":  {
+                                                                                                        "application/json":  {
+                                                                                                                                 "schema":  {
+                                                                                                                                                "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                            }
+                                                                                                                             }
+                                                                                                    }
+                                                                                    }
+                                                                        }
+                                                      },
+                                             "get":  {
+                                                         "tags":  [
+                                                                      "Partner Public API"
+                                                                  ],
+                                                         "summary":  "Get Profile Query",
+                                                         "description":  "ãã­ãã£ã¼ã«åå¾ã¨ã³ããã¤ã³ãï¼GET ã¯ã¨ãªãã©ã¡ã¼ã¿å½¢å¼ï¼ã\nURL ãã¹ã« ID ãåºå®ãããã¯ã¨ãªå¼æ° (?discord_user_id=...) ã¨ãã¦æ¸¡ãã¾ãã",
+                                                         "operationId":  "get_profile_query_api_v1_getProfile_get",
+                                                         "security":  [
+                                                                          {
+                                                                              "APIKeyHeader":  [
+
+                                                                                               ]
+                                                                          },
+                                                                          {
+                                                                              "APIKeyQuery":  [
+
+                                                                                              ]
+                                                                          }
+                                                                      ],
+                                                         "parameters":  [
+                                                                            {
+                                                                                "name":  "discord_user_id",
+                                                                                "in":  "query",
+                                                                                "required":  false,
+                                                                                "schema":  {
+                                                                                               "anyOf":  [
+                                                                                                             {
+                                                                                                                 "type":  "string"
+                                                                                                             },
+                                                                                                             {
+                                                                                                                 "type":  "null"
+                                                                                                             }
+                                                                                                         ],
+                                                                                               "title":  "Discord User Id"
+                                                                                           }
+                                                                            },
+                                                                            {
+                                                                                "name":  "google_id",
+                                                                                "in":  "query",
+                                                                                "required":  false,
+                                                                                "schema":  {
+                                                                                               "anyOf":  [
+                                                                                                             {
+                                                                                                                 "type":  "string"
+                                                                                                             },
+                                                                                                             {
+                                                                                                                 "type":  "null"
+                                                                                                             }
+                                                                                                         ],
+                                                                                               "title":  "Google Id"
+                                                                                           }
+                                                                            }
+                                                                        ],
+                                                         "responses":  {
+                                                                           "200":  {
+                                                                                       "description":  "Successful Response",
+                                                                                       "content":  {
+                                                                                                       "application/json":  {
+                                                                                                                                "schema":  {
+                                                                                                                                               "$ref":  "#/components/schemas/PartnerProfileResponse"
+                                                                                                                                           }
+                                                                                                                            }
+                                                                                                   }
+                                                                                   },
+                                                                           "422":  {
+                                                                                       "description":  "Validation Error",
+                                                                                       "content":  {
+                                                                                                       "application/json":  {
+                                                                                                                                "schema":  {
+                                                                                                                                               "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                           }
+                                                                                                                            }
+                                                                                                   }
+                                                                                   }
+                                                                       }
+                                                     }
+                                         },
+                  "/api/v1/profile":  {
+                                          "post":  {
+                                                       "tags":  [
+                                                                    "Partner Public API"
+                                                                ],
+                                                       "summary":  "Create User Profile By Partner",
+                                                       "description":  "ãæ¨©éå¿\u0085è¦ãææºãµã¼ãã¹ããæ°ããã¦ã¼ã¶ã¼ã¢ã«ã¦ã³ããè¿½å ã»ä¿ç®¡ãã¾ãã\nâ» APIã­ã¼ã« \u0027can_create_user\u0027 (ã¦ã¼ã¶ã¼è¿½å æ¨©é) ãä»ä¸ããã¦ããå¿\u0085è¦ãããã¾ãã",
+                                                       "operationId":  "create_user_profile_by_partner_api_v1_profile_post",
+                                                       "requestBody":  {
+                                                                           "content":  {
+                                                                                           "multipart/form-data":  {
+                                                                                                                       "schema":  {
+                                                                                                                                      "$ref":  "#/components/schemas/Body_create_user_profile_by_partner_api_v1_profile_post"
+                                                                                                                                  }
+                                                                                                                   }
+                                                                                       },
+                                                                           "required":  true
+                                                                       },
+                                                       "responses":  {
+                                                                         "201":  {
+                                                                                     "description":  "Successful Response",
+                                                                                     "content":  {
+                                                                                                     "application/json":  {
+                                                                                                                              "schema":  {
+                                                                                                                                             "$ref":  "#/components/schemas/PartnerProfileResponse"
+                                                                                                                                         }
+                                                                                                                          }
+                                                                                                 }
+                                                                                 },
+                                                                         "422":  {
+                                                                                     "description":  "Validation Error",
+                                                                                     "content":  {
+                                                                                                     "application/json":  {
+                                                                                                                              "schema":  {
+                                                                                                                                             "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                         }
+                                                                                                                          }
+                                                                                                 }
+                                                                                 }
+                                                                     },
+                                                       "security":  [
+                                                                        {
+                                                                            "APIKeyHeader":  [
+
+                                                                                             ]
+                                                                        },
+                                                                        {
+                                                                            "APIKeyQuery":  [
+
+                                                                                            ]
+                                                                        }
+                                                                    ]
+                                                   }
+                                      },
+                  "/api/v1/create_moffy":  {
+                                               "post":  {
+                                                            "tags":  [
+                                                                         "Moffy AI Generator"
+                                                                     ],
+                                                            "summary":  "Create Moffy",
+                                                            "description":  "ãAIç»åçæãã¢ããã£ã¼(Moffy) ã­ã£ã©ã¯ã¿ã¼ç»åã Gemini 3.1 Flash Image ã§çæãã¾ãã\n- ãµã¼ãã¼åæ¢±ã®2æã®ãªãã¡ã¬ã³ã¹ç»åï¼Few-shotï¼ã«ãããé¼»ãªãã»æã®ãã¤ã©ã¤ãã»Geminiã«ã©ã¼è¹å½©ã®ä¸è²«ããã¹ã¿ã¤ã«ãç¶­æããã¾ãã\n- ã¦ã¼ã¶ã¼ãä»»æã®åèç»åãã¢ããã­ã¼ããã¦ä¸ãããã¨ãå¯è½ã§ãã\n- çæç»åã¯ Firebase Cloud Storage ã«èªåä¿ç®¡ãããæ°¸ç¶ URL ãçºè¡ããã¾ãã",
+                                                            "operationId":  "create_moffy_api_v1_create_moffy_post",
+                                                            "requestBody":  {
+                                                                                "content":  {
+                                                                                                "multipart/form-data":  {
+                                                                                                                            "schema":  {
+                                                                                                                                           "$ref":  "#/components/schemas/Body_create_moffy_api_v1_create_moffy_post"
+                                                                                                                                       }
+                                                                                                                        }
+                                                                                            }
+                                                                            },
+                                                            "responses":  {
+                                                                              "200":  {
+                                                                                          "description":  "Successful Response",
+                                                                                          "content":  {
+                                                                                                          "application/json":  {
+                                                                                                                                   "schema":  {
+                                                                                                                                                  "$ref":  "#/components/schemas/CreateMoffyResponse"
+                                                                                                                                              }
+                                                                                                                               }
+                                                                                                      }
+                                                                                      },
+                                                                              "422":  {
+                                                                                          "description":  "Validation Error",
+                                                                                          "content":  {
+                                                                                                          "application/json":  {
+                                                                                                                                   "schema":  {
+                                                                                                                                                  "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                              }
+                                                                                                                               }
+                                                                                                      }
+                                                                                      }
+                                                                          },
+                                                            "security":  [
+                                                                             {
+                                                                                 "APIKeyHeader":  [
+
+                                                                                                  ]
+                                                                             },
+                                                                             {
+                                                                                 "HTTPBearer":  [
+
+                                                                                                ]
+                                                                             }
+                                                                         ]
+                                                        }
+                                           }
+              },
+    "components":  {
+                       "schemas":  {
+                                       "AdminLoginRequest":  {
+                                                                 "properties":  {
+                                                                                    "password":  {
+                                                                                                     "type":  "string",
+                                                                                                     "title":  "Password"
+                                                                                                 }
+                                                                                },
+                                                                 "type":  "object",
+                                                                 "required":  [
+                                                                                  "password"
+                                                                              ],
+                                                                 "title":  "AdminLoginRequest"
+                                                             },
+                                       "AdminLoginResponse":  {
+                                                                  "properties":  {
+                                                                                     "access_token":  {
+                                                                                                          "type":  "string",
+                                                                                                          "title":  "Access Token"
+                                                                                                      },
+                                                                                     "token_type":  {
+                                                                                                        "type":  "string",
+                                                                                                        "title":  "Token Type"
+                                                                                                    },
+                                                                                     "expires_in":  {
+                                                                                                        "type":  "integer",
+                                                                                                        "title":  "Expires In"
+                                                                                                    }
+                                                                                 },
+                                                                  "type":  "object",
+                                                                  "required":  [
+                                                                                   "access_token",
+                                                                                   "token_type",
+                                                                                   "expires_in"
+                                                                               ],
+                                                                  "title":  "AdminLoginResponse"
+                                                              },
+                                       "AdminVerifyResponse":  {
+                                                                   "properties":  {
+                                                                                      "status":  {
+                                                                                                     "type":  "string",
+                                                                                                     "title":  "Status"
+                                                                                                 },
+                                                                                      "role":  {
+                                                                                                   "type":  "string",
+                                                                                                   "title":  "Role"
+                                                                                               }
+                                                                                  },
+                                                                   "type":  "object",
+                                                                   "required":  [
+                                                                                    "status",
+                                                                                    "role"
+                                                                                ],
+                                                                   "title":  "AdminVerifyResponse"
+                                                               },
+                                       "ApiKeyPublicResponse":  {
+                                                                    "properties":  {
+                                                                                       "key_id":  {
+                                                                                                      "type":  "string",
+                                                                                                      "title":  "Key Id"
+                                                                                                  },
+                                                                                       "service_name":  {
+                                                                                                            "type":  "string",
+                                                                                                            "title":  "Service Name"
+                                                                                                        },
+                                                                                       "masked_key":  {
+                                                                                                          "type":  "string",
+                                                                                                          "title":  "Masked Key"
+                                                                                                      },
+                                                                                       "is_active":  {
+                                                                                                         "type":  "boolean",
+                                                                                                         "title":  "Is Active"
+                                                                                                     },
+                                                                                       "can_create_user":  {
+                                                                                                               "type":  "boolean",
+                                                                                                               "title":  "Can Create User",
+                                                                                                               "default":  false
+                                                                                                           },
+                                                                                       "role":  {
+                                                                                                    "type":  "string",
+                                                                                                    "title":  "Role",
+                                                                                                    "default":  "READ"
+                                                                                                },
+                                                                                       "created_at":  {
+                                                                                                          "type":  "string",
+                                                                                                          "title":  "Created At"
+                                                                                                      },
+                                                                                       "updated_at":  {
+                                                                                                          "type":  "string",
+                                                                                                          "title":  "Updated At"
+                                                                                                      }
+                                                                                   },
+                                                                    "type":  "object",
+                                                                    "required":  [
+                                                                                     "key_id",
+                                                                                     "service_name",
+                                                                                     "masked_key",
+                                                                                     "is_active",
+                                                                                     "created_at",
+                                                                                     "updated_at"
+                                                                                 ],
+                                                                    "title":  "ApiKeyPublicResponse"
+                                                                },
+                                       "Body_create_moffy_api_v1_create_moffy_post":  {
+                                                                                          "properties":  {
+                                                                                                             "color":  {
+                                                                                                                           "type":  "string",
+                                                                                                                           "title":  "Color",
+                                                                                                                           "description":  "ã¢ããã£ã¼ã®è²ï¼ä¾: ç½, ãã³ã¯, ãã¹ãã«ãã«ã¼, ã´ã¼ã«ãï¼",
+                                                                                                                           "default":  "ç½"
+                                                                                                                       },
+                                                                                                             "body_shape":  {
+                                                                                                                                "type":  "string",
+                                                                                                                                "title":  "Body Shape",
+                                                                                                                                "description":  "ä½ã®å½¢",
+                                                                                                                                "default":  "ä¸¸ã£ãã2é ­èº«ã§ã½ã£ã¦ãããå½¢"
+                                                                                                                            },
+                                                                                                             "body_features":  {
+                                                                                                                                   "type":  "string",
+                                                                                                                                   "title":  "Body Features",
+                                                                                                                                   "description":  "ä½ã®ç¹å¾´",
+                                                                                                                                   "default":  "å°ããªæè¶³ãèä¸­ã«å°ããªç½ãç¾½"
+                                                                                                                               },
+                                                                                                             "mouth_features":  {
+                                                                                                                                    "type":  "string",
+                                                                                                                                    "title":  "Mouth Features",
+                                                                                                                                    "description":  "å£ã®ç¹å¾´",
+                                                                                                                                    "default":  "å°ããéããããããå£ãã¡ãããã¨åºãå°ããªå\u0085«éæ­¯"
+                                                                                                                                },
+                                                                                                             "hair_features":  {
+                                                                                                                                   "type":  "string",
+                                                                                                                                   "title":  "Hair Features",
+                                                                                                                                   "description":  "æ¯ã®ç¹å¾´",
+                                                                                                                                   "default":  "é·æ¯ã§ç¶¿æ¯ã®ããã«ç´°ãããµããµãããæ¯ä¸¦ã¿"
+                                                                                                                               },
+                                                                                                             "accessories":  {
+                                                                                                                                 "type":  "string",
+                                                                                                                                 "title":  "Accessories",
+                                                                                                                                 "description":  "ã¢ã¯ã»ãµãªã¼ã»ãã®ä»æãããããã®",
+                                                                                                                                 "default":  "ãªã"
+                                                                                                                             },
+                                                                                                             "expression":  {
+                                                                                                                                "type":  "string",
+                                                                                                                                "title":  "Expression",
+                                                                                                                                "description":  "è¡¨æ\u0085",
+                                                                                                                                "default":  "ã«ã£ããå¾®ç¬ãã§ãã"
+                                                                                                                            },
+                                                                                                             "reference_image":  {
+                                                                                                                                     "anyOf":  [
+                                                                                                                                                   {
+                                                                                                                                                       "type":  "string",
+                                                                                                                                                       "contentMediaType":  "application/octet-stream"
+                                                                                                                                                   },
+                                                                                                                                                   {
+                                                                                                                                                       "type":  "null"
+                                                                                                                                                   }
+                                                                                                                                               ],
+                                                                                                                                     "title":  "Reference Image",
+                                                                                                                                     "description":  "ãã¼ãºãè¡£è£\u0085ã®åèã¨ãã¦æ¸¡ãããè¿½å ã®åèç»åï¼ä»»æï¼"
+                                                                                                                                 },
+                                                                                                             "api_key":  {
+                                                                                                                             "anyOf":  [
+                                                                                                                                           {
+                                                                                                                                               "type":  "string"
+                                                                                                                                           },
+                                                                                                                                           {
+                                                                                                                                               "type":  "null"
+                                                                                                                                           }
+                                                                                                                                       ],
+                                                                                                                             "title":  "Api Key",
+                                                                                                                             "description":  "APIã­ã¼ï¼ãããã¼ \u0027X-API-Key\u0027 ã®ä»£ããã«ãä½¿ç¨å¯è½ï¼"
+                                                                                                                         },
+                                                                                                             "api_key_form":  {
+                                                                                                                                  "anyOf":  [
+                                                                                                                                                {
+                                                                                                                                                    "type":  "string"
+                                                                                                                                                },
+                                                                                                                                                {
+                                                                                                                                                    "type":  "null"
+                                                                                                                                                }
+                                                                                                                                            ],
+                                                                                                                                  "title":  "Api Key Form"
+                                                                                                                              }
+                                                                                                         },
+                                                                                          "type":  "object",
+                                                                                          "title":  "Body_create_moffy_api_v1_create_moffy_post"
+                                                                                      },
+                                       "Body_create_or_update_profile_api_profile_post":  {
+                                                                                              "properties":  {
+                                                                                                                 "discord_user_id":  {
+                                                                                                                                         "type":  "string",
+                                                                                                                                         "title":  "Discord User Id",
+                                                                                                                                         "description":  "Discord User ID"
+                                                                                                                                     },
+                                                                                                                 "password":  {
+                                                                                                                                  "type":  "string",
+                                                                                                                                  "title":  "Password",
+                                                                                                                                  "description":  "ã­ã°ã¤ã³ã»èªè¨¼ç¨ãã¹ã¯ã¼ã"
+                                                                                                                              },
+                                                                                                                 "photo":  {
+                                                                                                                               "type":  "string",
+                                                                                                                               "contentMediaType":  "application/octet-stream",
+                                                                                                                               "title":  "Photo",
+                                                                                                                               "description":  "ãã­ãã£ã¼ã«åçç»å"
+                                                                                                                           }
+                                                                                                             },
+                                                                                              "type":  "object",
+                                                                                              "required":  [
+                                                                                                               "discord_user_id",
+                                                                                                               "password",
+                                                                                                               "photo"
+                                                                                                           ],
+                                                                                              "title":  "Body_create_or_update_profile_api_profile_post"
+                                                                                          },
+                                       "Body_create_user_profile_by_partner_api_v1_profile_post":  {
+                                                                                                       "properties":  {
+                                                                                                                          "discord_user_id":  {
+                                                                                                                                                  "type":  "string",
+                                                                                                                                                  "title":  "Discord User Id",
+                                                                                                                                                  "description":  "Discord User ID"
+                                                                                                                                              },
+                                                                                                                          "password":  {
+                                                                                                                                           "type":  "string",
+                                                                                                                                           "title":  "Password",
+                                                                                                                                           "description":  "ã­ã°ã¤ã³ã»èªè¨¼ç¨ãã¹ã¯ã¼ã (8æå­ä»¥ä¸)"
+                                                                                                                                       },
+                                                                                                                          "photo":  {
+                                                                                                                                        "type":  "string",
+                                                                                                                                        "contentMediaType":  "application/octet-stream",
+                                                                                                                                        "title":  "Photo",
+                                                                                                                                        "description":  "ãã­ãã£ã¼ã«åçç»å"
+                                                                                                                                    }
+                                                                                                                      },
+                                                                                                       "type":  "object",
+                                                                                                       "required":  [
+                                                                                                                        "discord_user_id",
+                                                                                                                        "password",
+                                                                                                                        "photo"
+                                                                                                                    ],
+                                                                                                       "title":  "Body_create_user_profile_by_partner_api_v1_profile_post"
+                                                                                                   },
+                                       "CreateKeyRequest":  {
+                                                                "properties":  {
+                                                                                   "service_name":  {
+                                                                                                        "type":  "string",
+                                                                                                        "maxLength":  100,
+                                                                                                        "minLength":  1,
+                                                                                                        "title":  "Service Name",
+                                                                                                        "description":  "ææºãµã¼ãã¹ã»ã·ã¹ãã ã®åç§°"
+                                                                                                    },
+                                                                                   "can_create_user":  {
+                                                                                                           "type":  "boolean",
+                                                                                                           "title":  "Can Create User",
+                                                                                                           "description":  "ã¦ã¼ã¶ã¼ã¢ã«ã¦ã³ãã®è¿½å ãè¨±å¯ãããã©ãã",
+                                                                                                           "default":  false
+                                                                                                       }
+                                                                               },
+                                                                "type":  "object",
+                                                                "required":  [
+                                                                                 "service_name"
+                                                                             ],
+                                                                "title":  "CreateKeyRequest"
+                                                            },
+                                       "CreateKeyResponse":  {
+                                                                 "properties":  {
+                                                                                    "key_id":  {
+                                                                                                   "type":  "string",
+                                                                                                   "title":  "Key Id"
+                                                                                               },
+                                                                                    "service_name":  {
+                                                                                                         "type":  "string",
+                                                                                                         "title":  "Service Name"
+                                                                                                     },
+                                                                                    "masked_key":  {
+                                                                                                       "type":  "string",
+                                                                                                       "title":  "Masked Key"
+                                                                                                   },
+                                                                                    "is_active":  {
+                                                                                                      "type":  "boolean",
+                                                                                                      "title":  "Is Active"
+                                                                                                  },
+                                                                                    "can_create_user":  {
+                                                                                                            "type":  "boolean",
+                                                                                                            "title":  "Can Create User",
+                                                                                                            "default":  false
+                                                                                                        },
+                                                                                    "role":  {
+                                                                                                 "type":  "string",
+                                                                                                 "title":  "Role",
+                                                                                                 "default":  "READ"
+                                                                                             },
+                                                                                    "created_at":  {
+                                                                                                       "type":  "string",
+                                                                                                       "title":  "Created At"
+                                                                                                   },
+                                                                                    "updated_at":  {
+                                                                                                       "type":  "string",
+                                                                                                       "title":  "Updated At"
+                                                                                                   },
+                                                                                    "raw_key":  {
+                                                                                                    "type":  "string",
+                                                                                                    "title":  "Raw Key",
+                                                                                                    "description":  "ãéè¦ãååçææã®ã¿éç¤ºãããå®å\u0085¨ãªAPIã­ã¼"
+                                                                                                }
+                                                                                },
+                                                                 "type":  "object",
+                                                                 "required":  [
+                                                                                  "key_id",
+                                                                                  "service_name",
+                                                                                  "masked_key",
+                                                                                  "is_active",
+                                                                                  "created_at",
+                                                                                  "updated_at",
+                                                                                  "raw_key"
+                                                                              ],
+                                                                 "title":  "CreateKeyResponse"
+                                                             },
+                                       "CreateMoffyResponse":  {
+                                                                   "properties":  {
+                                                                                      "status":  {
+                                                                                                     "type":  "string",
+                                                                                                     "title":  "Status"
+                                                                                                 },
+                                                                                      "image_url":  {
+                                                                                                        "type":  "string",
+                                                                                                        "title":  "Image Url"
+                                                                                                    },
+                                                                                      "prompt_used":  {
+                                                                                                          "type":  "string",
+                                                                                                          "title":  "Prompt Used"
+                                                                                                      },
+                                                                                      "created_at":  {
+                                                                                                         "type":  "string",
+                                                                                                         "title":  "Created At"
+                                                                                                     },
+                                                                                      "base64_data":  {
+                                                                                                          "anyOf":  [
+                                                                                                                        {
+                                                                                                                            "type":  "string"
+                                                                                                                        },
+                                                                                                                        {
+                                                                                                                            "type":  "null"
+                                                                                                                        }
+                                                                                                                    ],
+                                                                                                          "title":  "Base64 Data"
+                                                                                                      }
+                                                                                  },
+                                                                   "type":  "object",
+                                                                   "required":  [
+                                                                                    "status",
+                                                                                    "image_url",
+                                                                                    "prompt_used",
+                                                                                    "created_at"
+                                                                                ],
+                                                                   "title":  "CreateMoffyResponse"
+                                                               },
+                                       "GetProfileRequest":  {
+                                                                 "properties":  {
+                                                                                    "discord_user_id":  {
+                                                                                                            "anyOf":  [
+                                                                                                                          {
+                                                                                                                              "type":  "string"
+                                                                                                                          },
+                                                                                                                          {
+                                                                                                                              "type":  "null"
+                                                                                                                          }
+                                                                                                                      ],
+                                                                                                            "title":  "Discord User Id"
+                                                                                                        },
+                                                                                    "google_id":  {
+                                                                                                      "anyOf":  [
+                                                                                                                    {
+                                                                                                                        "type":  "string"
+                                                                                                                    },
+                                                                                                                    {
+                                                                                                                        "type":  "null"
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                      "title":  "Google Id"
+                                                                                                  },
+                                                                                    "account_type":  {
+                                                                                                         "anyOf":  [
+                                                                                                                       {
+                                                                                                                           "type":  "string"
+                                                                                                                       },
+                                                                                                                       {
+                                                                                                                           "type":  "null"
+                                                                                                                       }
+                                                                                                                   ],
+                                                                                                         "title":  "Account Type",
+                                                                                                         "default":  "discord"
+                                                                                                     },
+                                                                                    "api_key":  {
+                                                                                                    "anyOf":  [
+                                                                                                                  {
+                                                                                                                      "type":  "string"
+                                                                                                                  },
+                                                                                                                  {
+                                                                                                                      "type":  "null"
+                                                                                                                  }
+                                                                                                              ],
+                                                                                                    "title":  "Api Key"
+                                                                                                }
+                                                                                },
+                                                                 "type":  "object",
+                                                                 "title":  "GetProfileRequest"
+                                                             },
+                                       "HTTPValidationError":  {
+                                                                   "properties":  {
+                                                                                      "detail":  {
+                                                                                                     "items":  {
+                                                                                                                   "$ref":  "#/components/schemas/ValidationError"
+                                                                                                               },
+                                                                                                     "type":  "array",
+                                                                                                     "title":  "Detail"
+                                                                                                 }
+                                                                                  },
+                                                                   "type":  "object",
+                                                                   "title":  "HTTPValidationError"
+                                                               },
+                                       "PartnerPingResponse":  {
+                                                                   "properties":  {
+                                                                                      "status":  {
+                                                                                                     "type":  "string",
+                                                                                                     "title":  "Status"
+                                                                                                 },
+                                                                                      "authenticated_as":  {
+                                                                                                               "type":  "string",
+                                                                                                               "title":  "Authenticated As"
+                                                                                                           },
+                                                                                      "can_create_user":  {
+                                                                                                              "type":  "boolean",
+                                                                                                              "title":  "Can Create User"
+                                                                                                          }
+                                                                                  },
+                                                                   "type":  "object",
+                                                                   "required":  [
+                                                                                    "status",
+                                                                                    "authenticated_as",
+                                                                                    "can_create_user"
+                                                                                ],
+                                                                   "title":  "PartnerPingResponse"
+                                                               },
+                                       "PartnerProfileResponse":  {
+                                                                      "properties":  {
+                                                                                         "discord_user_id":  {
+                                                                                                                 "type":  "string",
+                                                                                                                 "title":  "Discord User Id"
+                                                                                                             },
+                                                                                         "photo_url":  {
+                                                                                                           "type":  "string",
+                                                                                                           "title":  "Photo Url"
+                                                                                                       },
+                                                                                         "created_at":  {
+                                                                                                            "type":  "string",
+                                                                                                            "title":  "Created At"
+                                                                                                        },
+                                                                                         "updated_at":  {
+                                                                                                            "type":  "string",
+                                                                                                            "title":  "Updated At"
+                                                                                                        },
+                                                                                         "google_id":  {
+                                                                                                           "anyOf":  [
+                                                                                                                         {
+                                                                                                                             "type":  "string"
+                                                                                                                         },
+                                                                                                                         {
+                                                                                                                             "type":  "null"
+                                                                                                                         }
+                                                                                                                     ],
+                                                                                                           "title":  "Google Id"
+                                                                                                       }
+                                                                                     },
+                                                                      "type":  "object",
+                                                                      "required":  [
+                                                                                       "discord_user_id",
+                                                                                       "photo_url",
+                                                                                       "created_at",
+                                                                                       "updated_at"
+                                                                                   ],
+                                                                      "title":  "PartnerProfileResponse"
+                                                                  },
+                                       "ProfileResponse":  {
+                                                               "properties":  {
+                                                                                  "discord_user_id":  {
+                                                                                                          "type":  "string",
+                                                                                                          "title":  "Discord User Id"
+                                                                                                      },
+                                                                                  "photo_url":  {
+                                                                                                    "type":  "string",
+                                                                                                    "title":  "Photo Url"
+                                                                                                },
+                                                                                  "created_at":  {
+                                                                                                     "type":  "string",
+                                                                                                     "title":  "Created At"
+                                                                                                 },
+                                                                                  "updated_at":  {
+                                                                                                     "type":  "string",
+                                                                                                     "title":  "Updated At"
+                                                                                                 }
+                                                                              },
+                                                               "type":  "object",
+                                                               "required":  [
+                                                                                "discord_user_id",
+                                                                                "photo_url",
+                                                                                "created_at",
+                                                                                "updated_at"
+                                                                            ],
+                                                               "title":  "ProfileResponse"
+                                                           },
+                                       "StatusResponse":  {
+                                                              "properties":  {
+                                                                                 "is_firebase":  {
+                                                                                                     "type":  "boolean",
+                                                                                                     "title":  "Is Firebase"
+                                                                                                 },
+                                                                                 "storage_mode":  {
+                                                                                                      "type":  "string",
+                                                                                                      "title":  "Storage Mode"
+                                                                                                  }
+                                                                             },
+                                                              "type":  "object",
+                                                              "required":  [
+                                                                               "is_firebase",
+                                                                               "storage_mode"
+                                                                           ],
+                                                              "title":  "StatusResponse"
+                                                          },
+                                       "ToggleKeyRequest":  {
+                                                                "properties":  {
+                                                                                   "is_active":  {
+                                                                                                     "type":  "boolean",
+                                                                                                     "title":  "Is Active"
+                                                                                                 }
+                                                                               },
+                                                                "type":  "object",
+                                                                "required":  [
+                                                                                 "is_active"
+                                                                             ],
+                                                                "title":  "ToggleKeyRequest"
+                                                            },
+                                       "UpdatePermissionRequest":  {
+                                                                       "properties":  {
+                                                                                          "can_create_user":  {
+                                                                                                                  "type":  "boolean",
+                                                                                                                  "title":  "Can Create User"
+                                                                                                              }
+                                                                                      },
+                                                                       "type":  "object",
+                                                                       "required":  [
+                                                                                        "can_create_user"
+                                                                                    ],
+                                                                       "title":  "UpdatePermissionRequest"
+                                                                   },
+                                       "ValidationError":  {
+                                                               "properties":  {
+                                                                                  "loc":  {
+                                                                                              "items":  {
+                                                                                                            "anyOf":  [
+                                                                                                                          {
+                                                                                                                              "type":  "string"
+                                                                                                                          },
+                                                                                                                          {
+                                                                                                                              "type":  "integer"
+                                                                                                                          }
+                                                                                                                      ]
+                                                                                                        },
+                                                                                              "type":  "array",
+                                                                                              "title":  "Location"
+                                                                                          },
+                                                                                  "msg":  {
+                                                                                              "type":  "string",
+                                                                                              "title":  "Message"
+                                                                                          },
+                                                                                  "type":  {
+                                                                                               "type":  "string",
+                                                                                               "title":  "Error Type"
+                                                                                           },
+                                                                                  "input":  {
+                                                                                                "title":  "Input"
+                                                                                            },
+                                                                                  "ctx":  {
+                                                                                              "type":  "object",
+                                                                                              "title":  "Context"
+                                                                                          }
+                                                                              },
+                                                               "type":  "object",
+                                                               "required":  [
+                                                                                "loc",
+                                                                                "msg",
+                                                                                "type"
+                                                                            ],
+                                                               "title":  "ValidationError"
+                                                           }
+                                   },
+                       "securitySchemes":  {
+                                               "HTTPBearer":  {
+                                                                  "type":  "http",
+                                                                  "scheme":  "bearer"
+                                                              },
+                                               "APIKeyHeader":  {
+                                                                    "type":  "apiKey",
+                                                                    "in":  "header",
+                                                                    "name":  "X-API-Key"
+                                                                },
+                                               "APIKeyQuery":  {
+                                                                   "type":  "apiKey",
+                                                                   "in":  "query",
+                                                                   "name":  "api_key"
+                                                               }
+                                           }
+                   }
+}
