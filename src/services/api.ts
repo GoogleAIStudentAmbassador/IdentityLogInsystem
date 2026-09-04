@@ -21,23 +21,25 @@ export function getApiBaseUrl(): string {
 }
 
 export function getApiKey(): string {
-  return import.meta.env.VITE_MOFFY_API_KEY || '';
+  return (import.meta.env.VITE_MOFFY_API_KEY || '').trim();
 }
 
 export async function checkApiHealth(): Promise<{ authenticated: boolean; name: string; canCreate: boolean }> {
   const baseUrl = getApiBaseUrl();
   const apiKey = getApiKey();
   if (!apiKey) {
-    console.warn('VITE_MOFFY_API_KEY is not set. API calls will not be authenticated.');
+    console.warn('[API Health] VITE_MOFFY_API_KEY is not set. API calls will not be authenticated.');
     return { authenticated: false, name: '', canCreate: false };
   }
   try {
-    const res = await fetch(`${baseUrl}/api/v1/ping`, {
+    const targetUrl = `${baseUrl}/api/v1/ping`;
+    const res = await fetch(targetUrl, {
       headers: {
         'X-API-Key': apiKey,
       },
     });
     if (!res.ok) {
+      console.warn(`[API Health] Ping responded with status ${res.status} (${res.statusText})`);
       return { authenticated: false, name: '', canCreate: false };
     }
     const data = await res.json();
@@ -47,7 +49,7 @@ export async function checkApiHealth(): Promise<{ authenticated: boolean; name: 
       canCreate: !!data.can_create_user,
     };
   } catch (err) {
-    console.error('API ping error:', err);
+    console.error('[API Health] Ping failed (possible CORS or network error). Base URL:', baseUrl, err);
     return { authenticated: false, name: '', canCreate: false };
   }
 }

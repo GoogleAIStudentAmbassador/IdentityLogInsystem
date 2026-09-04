@@ -18,6 +18,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,11 +33,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build with Vite
+      - name: Verify Secrets & Build with Vite
         env:
-          VITE_MOFFY_API_KEY: ${{ secrets.VITE_MOFFY_API_KEY }}
+          VITE_MOFFY_API_KEY: ${{ secrets.VITE_MOFFY_API_KEY || secrets.MOFFY_API_KEY || secrets.API_KEY }}
           VITE_MOFFY_API_BASE_URL: ${{ secrets.VITE_MOFFY_API_BASE_URL }}
-        run: npm run build
+        run: |
+          if [ -z "$VITE_MOFFY_API_KEY" ]; then
+            echo "::warning::VITE_MOFFY_API_KEY is not set in Secrets! API will fail in production unless configured."
+          else
+            echo "VITE_MOFFY_API_KEY is configured (length: ${#VITE_MOFFY_API_KEY})"
+          fi
+          npm run build
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
