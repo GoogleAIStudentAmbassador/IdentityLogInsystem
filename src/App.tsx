@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import type { GameStage, Archetype, RegistrationResult, MbtiType, CreateMoffyParams } from './types';
+import type { GameStage, Archetype, RegistrationResult, MbtiType, CreateMoffyParams, ShardPalette } from './types';
 import { MBTI_ARCHETYPES, PERSONALITY_QUESTIONS, ARCHETYPE_EQUIP_INSTRUCTIONS } from './data/personalityQuestions';
+import { SHARD_PALETTES } from './types';
 import { generateProfileCardBlob } from './utils/cardGenerator';
 import {
   checkApiHealth,
@@ -9,6 +10,7 @@ import {
   createMoffy,
   editMoffyImage,
   updateArrangedPhoto,
+  updateProfilePhotos,
   base64ToBlob,
   urlToBlob,
 } from './services/api';
@@ -49,6 +51,11 @@ export const App: React.FC = () => {
   const [pipelineTitle, setPipelineTitle] = useState<string>('');
   const [pipelineMessage, setPipelineMessage] = useState<string>('');
 
+  // ロード画面の中央星・水晶玉発光色（Google 4色パレットから同期）
+  const [chosenShard, setChosenShard] = useState<ShardPalette>(SHARD_PALETTES[0]);
+  // ロード完了時の中央星収束アニメーショントリガー
+  const [isLoadingEnding, setIsLoadingEnding] = useState(false);
+
   // アカウント作成成功後の星バーストアニメーション
   const [isBursting, setIsBursting] = useState(false);
   // クイズ移行までは暗い背景を維持
@@ -78,7 +85,7 @@ export const App: React.FC = () => {
     setHasMoffy(data.hasMoffy);
     setUploadedPhoto(data.uploadedPhoto);
     setLoadingMode(data.authMode);
-    setPipelineTitle(data.authMode === 'signin' ? 'サインイン中' : 'アカウントを作成中');
+    setPipelineTitle('ロード中...');
     setPipelineMessage('');
     setStage('generating');
     setErrorMsg(null);
@@ -104,11 +111,43 @@ export const App: React.FC = () => {
           setNormalMoffyImageUrl(existingProfile.photo_url || existingPhoto);
           setEquippedMoffyImageUrl(existingProfile.arranged_photo_url || existingPhoto);
         }
+
+        // 🌟 アレンジモッフィーが既に存在するなら、人格診断（quiz）を実行しない！
+        const hasArrangedMoffy = !!(
+          existingProfile.arranged_photo_url &&
+          existingProfile.arranged_photo_url.trim()
+        );
+
+        if (hasArrangedMoffy) {
+          setRegResult(result);
+
+          // カードBlobを生成して直接リザルト画面へ遷移
+          const archetypeToUse =
+            ((existingProfile as any).mbti && MBTI_ARCHETYPES[(existingProfile as any).mbti as MbtiType]) ||
+            selectedArchetype;
+          setSelectedArchetype(archetypeToUse);
+
+          const { blob, dataUrl } = await generateProfileCardBlob(
+            archetypeToUse,
+            data.discordUserId,
+            existingProfile.arranged_photo_url
+          );
+          setCardBlob(blob);
+          setCardDataUrl(dataUrl);
+
+          setIsBursting(true);
+          setTimeout(() => {
+            setIsBursting(false);
+            setIsDarkTheme(true);
+            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+            setStage('result');
+          }, 1500);
+          return;
+        }
       } else {
         // === サインアップ処理：新規ユーザーをバックエンドに登録 ===
-        // uploadedPhoto はモッフィー画像（はい）か白画像Blob（いいえ）
-        const photoBlob: Blob = data.uploadedPhoto ?? createWhiteImageBlob();
-        result = await registerUserProfile(data.discordUserId, data.password, photoBlob);
+        // アカウント作成時に画像が必須ではなくなったため、白い画像は送信せず uploadedPhoto のみ送信
+        result = await registerUserProfile(data.discordUserId, data.password, data.uploadedPhoto);
 
         if (data.uploadedPhoto) {
           const localUrl = URL.createObjectURL(data.uploadedPhoto);
@@ -178,8 +217,11 @@ export const App: React.FC = () => {
 
     // モッフィー画像をすでに所持している場合：
     // そのままカード生成を行い、結果画面へ遷移
+    const randomShard = SHARD_PALETTES[Math.floor(Math.random() * SHARD_PALETTES.length)];
+    setChosenShard(randomShard);
+    setIsLoadingEnding(false);
     setLoadingMode('generating');
-    setPipelineTitle('深層宇宙へダイブ中');
+    setPipelineTitle('ロード中...');
     setPipelineMessage('');
     setStage('generating');
 
@@ -202,13 +244,13 @@ export const App: React.FC = () => {
       setCardBlob(blob);
       setCardDataUrl(dataUrl);
 
-      setTimeout(() => {
-        setStage('result');
-      }, 2800);
+      // ロード終了・中央星収束アニメーションを開始（ワンカット長回し）
+      setIsLoadingEnding(true);
     } catch (err: unknown) {
       console.error('Card generation failed:', err);
       const message = err instanceof Error ? err.message : 'カード生成中にエラーが発生しました';
       setErrorMsg(message);
+      setIsLoadingEnding(false);
       setStage('quiz');
     }
   };
@@ -217,11 +259,14 @@ export const App: React.FC = () => {
   // モッフィーカスタマイズ完了 ➔ 2段階画像生成パイプライン実行！
   // ======================================================================
   const handleCustomizeSubmit = async (params: CreateMoffyParams) => {
+    const randomShard = SHARD_PALETTES[Math.floor(Math.random() * SHARD_PALETTES.length)];
+    setChosenShard(randomShard);
+    setIsLoadingEnding(false);
     setStage('generating');
     setLoadingMode('generating');
     setIsDarkTheme(true);
-    setPipelineTitle('モッフィー召喚中');
-    setPipelineMessage('Step 1/2: 入力パラメータからベースモッフィーを生成中...');
+    setPipelineTitle('ロード中...');
+    setPipelineMessage('Step 1/2: ベースデータを生成中...');
     setErrorMsg(null);
 
     try {
@@ -243,7 +288,7 @@ export const App: React.FC = () => {
       setNormalMoffyImageUrl(baseMoffyLocalUrl);
 
       // Step 2: 初めに作った人格のアクセサリー（キーアイテム）とベースモッフィーを両方送信して生成 (POST /api/v1/edit_image)
-      setPipelineMessage(`Step 2/2: キーアイテム「${selectedArchetype.luckyItem}」を新エンドポイントで合成中...`);
+      setPipelineMessage(`Step 2/2: アイテム「${selectedArchetype.luckyItem}」を合成中...`);
 
       const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
       const itemUrl = `${baseUrl}items/${selectedArchetype.mbtiCode.toLowerCase()}.jpg`;
@@ -277,12 +322,21 @@ export const App: React.FC = () => {
       setEquippedMoffyImageUrl(finalMoffyLocalUrl);
       setCustomMoffyImageUrl(finalMoffyLocalUrl);
 
-      // Step 3: バックエンドの arranged_photo を更新 & ステータスカード生成
-      setPipelineMessage('公式パートナーカードを結晶化中...');
+      // Step 3: バックエンドのプロフィール写真（1枚目デフォルト: createRes.image_url, 2枚目アレンジ: editRes.image_url）を更新
+      setPipelineMessage('プロフィール写真を更新中...');
       try {
-        await updateArrangedPhoto(discordUserId, editRes.image_url);
+        await updateProfilePhotos(discordUserId, {
+          defaultPhoto: createRes.image_url,
+          arrangedPhoto: editRes.image_url,
+        });
       } catch (err) {
-        console.warn('Could not update arranged_photo on backend profile:', err);
+        console.warn('Could not update profile photos via /api/v1/profile/photo:', err);
+        // フォールバック: arranged_photo を個別更新
+        try {
+          await updateArrangedPhoto(discordUserId, editRes.image_url);
+        } catch (fallbackErr) {
+          console.warn('Fallback arranged photo update also failed:', fallbackErr);
+        }
       }
 
       // Canvas上で公式パートナーカードを生成（finalMoffyBlobを直接渡すことでCORS汚染ゼロで確実に描画）
@@ -294,10 +348,8 @@ export const App: React.FC = () => {
       setCardBlob(blob);
       setCardDataUrl(dataUrl);
 
-      setTimeout(() => {
-        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-        setStage('result');
-      }, 1500);
+      // ロード終了・中央星収束アニメーションを開始（ワンカット長回し）
+      setIsLoadingEnding(true);
     } catch (err: unknown) {
       console.error('2-step Moffy generation error:', err);
       const msg = err instanceof Error ? err.message : 'モッフィーの生成中にエラーが発生しました';
@@ -308,10 +360,10 @@ export const App: React.FC = () => {
         const { blob, dataUrl } = await generateProfileCardBlob(selectedArchetype, discordUserId);
         setCardBlob(blob);
         setCardDataUrl(dataUrl);
-        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-        setStage('result');
+        setIsLoadingEnding(true);
       } catch (fallbackErr) {
         console.error('Fallback card generation also failed:', fallbackErr);
+        setIsLoadingEnding(false);
         setStage('customize');
       }
     }
@@ -335,6 +387,7 @@ export const App: React.FC = () => {
     setCustomMoffyImageUrl(null);
     setPipelineTitle('');
     setPipelineMessage('');
+    setIsLoadingEnding(false);
   };
 
   return (
@@ -405,6 +458,13 @@ export const App: React.FC = () => {
             mode={loadingMode}
             customTitle={pipelineTitle}
             customMessage={pipelineMessage}
+            chosenShard={chosenShard}
+            isEnding={isLoadingEnding}
+            onFinishTransition={() => {
+              window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+              setStage('result');
+              setIsLoadingEnding(false);
+            }}
           />
         )}
 
@@ -436,6 +496,7 @@ export const App: React.FC = () => {
             customImageUrl={customMoffyImageUrl || undefined}
             normalImageUrl={normalMoffyImageUrl || undefined}
             equippedImageUrl={equippedMoffyImageUrl || customMoffyImageUrl || undefined}
+            chosenShard={chosenShard}
             onReset={handleReset}
           />
         )}
@@ -461,28 +522,5 @@ export const App: React.FC = () => {
     </div>
   );
 };
-
-// ======================================================================
-// 真っ白の 800×800 PNG Blob を同期的に生成（フォールバック用）
-// ======================================================================
-function createWhiteImageBlob(): Blob {
-  const canvas = document.createElement('canvas');
-  canvas.width = 800;
-  canvas.height = 800;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, 800, 800);
-
-  // toDataURL → Blob に同期変換
-  const dataUrl = canvas.toDataURL('image/png');
-  const byteString = atob(dataUrl.split(',')[1]);
-  const mimeString = dataUrl.split(',')[0].split(':')[1].split(';')[0];
-  const ab = new ArrayBuffer(byteString.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i);
-  }
-  return new Blob([ab], { type: mimeString });
-}
 
 export default App;

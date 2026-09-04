@@ -8,7 +8,7 @@ import {
   ChevronDown,
   ShieldCheck,
 } from 'lucide-react';
-import type { Archetype, RegistrationResult } from '../types';
+import type { Archetype, RegistrationResult, ShardPalette } from '../types';
 
 interface ResultScreenProps {
   archetype: Archetype;
@@ -20,8 +20,11 @@ interface ResultScreenProps {
   customImageUrl?: string;
   normalImageUrl?: string;
   equippedImageUrl?: string;
+  chosenShard: ShardPalette;
   onReset: () => void;
 }
+
+type AnimationStage = 'shard' | 'expanding' | 'crystallized' | 'revealed';
 
 export const ResultScreen: React.FC<ResultScreenProps> = ({
   archetype,
@@ -32,10 +35,12 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   customImageUrl,
   normalImageUrl,
   equippedImageUrl,
+  chosenShard,
   onReset,
 }) => {
-  // 星の破片から水晶球体への結晶化フェーズ ('fracturing' -> 'crystallized')
-  const [phase, setPhase] = useState<'fracturing' | 'crystallized'>('fracturing');
+  // 演出ステージ: 'shard' (中央小カケラ) -> 'expanding' (拡大＆受肉) -> 'crystallized' (水晶玉完成) -> 'revealed' (詳細テキスト生成)
+  const [animStage, setAnimStage] = useState<AnimationStage>('shard');
+
   // 水晶球体内のスタイルモード: 'equipped' (アクセサリー装備) | 'normal' (ノーマル)
   const [activeMode, setActiveMode] = useState<'equipped' | 'normal'>('equipped');
 
@@ -46,17 +51,33 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   const isDragging = React.useRef<boolean>(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setPhase('crystallized');
-      confetti({
-        particleCount: 90,
-        spread: 75,
-        origin: { y: 0.5 },
-      });
-    }, 1300);
+    // Step 1 (60ms): CSSトランジションを確実に走らせるために次フレームでexpanding開始
+    const t1 = setTimeout(() => {
+      setAnimStage('expanding');
+    }, 60);
 
-    return () => clearTimeout(timer);
-  }, []);
+    // Step 2 (1100ms): 水晶玉完成＆モッフィー受肉完了、コンフェッティ発射＆タイトル出現
+    const t2 = setTimeout(() => {
+      setAnimStage('crystallized');
+      confetti({
+        particleCount: 85,
+        spread: 75,
+        origin: { y: 0.44 },
+        colors: [chosenShard.color, '#ffffff', '#ffd700', '#38bdf8'],
+      });
+    }, 1100);
+
+    // Step 3 (1900ms): 演出完了後、下部に詳細テキストを生成
+    const t3 = setTimeout(() => {
+      setAnimStage('revealed');
+    }, 1900);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [chosenShard]);
 
   const handleDownloadCard = () => {
     const link = document.createElement('a');
@@ -163,94 +184,116 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   return (
     <div className="min-h-screen bg-black text-white selection:bg-blue-900 selection:text-white pb-32">
       {/* ==================================================================== */}
-      {/* PHASE 1: 星の破片が中央へ引き寄せられ結晶化するオープニング演出 */}
+      {/* PHASE 1 & 2: ロード画面の中央星からシームレスに拡大し、水晶玉の中にモッフィーが受肉する演出 */}
+      {/* 画面切り替えのカットを徹底排除したワンカット長回し演出 */}
       {/* ==================================================================== */}
-      {phase === 'fracturing' && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center pointer-events-none">
-          <div
-            className="absolute w-96 h-96 rounded-full blur-3xl opacity-30 animate-pulse"
-            style={{ backgroundColor: archetype.primaryColor }}
-          />
-
-          <div className="relative w-48 h-48 flex items-center justify-center">
-            {/* 欠けた幾何学星の本体 */}
-            <svg
-              viewBox="0 0 24 24"
-              className="w-24 h-24 text-white/20 animate-pulse absolute"
-            >
-              <path
-                d="M 12 2 Q 12 12 2 12 Q 12 12 12 22 Q 12 12 22 12 Q 12 12 12 2 Z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1"
-                strokeDasharray="4 2"
-              />
-            </svg>
-
-            {/* 欠けて中央へと飛び込んでくる光る結晶の破片 */}
-            <div className="animate-shard-gather absolute flex items-center justify-center">
-              <svg
-                viewBox="0 0 24 24"
-                className="w-16 h-16 fill-white drop-shadow-[0_0_24px_rgba(255,255,255,0.9)]"
-              >
-                <path d="M 12 2 Q 12 12 2 12 Q 12 12 12 22 Z" />
-              </svg>
-            </div>
-
-            <div className="absolute w-32 h-32 rounded-full border border-white/40 animate-ping" />
-          </div>
-
-          <p className="mt-8 text-xs font-mono tracking-widest text-gray-400">
-            CRYSTALLIZING ARCHETYPE...
-          </p>
-        </div>
-      )}
-
-      {/* ==================================================================== */}
-      {/* PHASE 2: 水晶の中に浮かぶモッフィー（ファーストビュー） */}
-      {/* ボックスで囲わず、空間を贅沢に使った Google のミニマルデザイン */}
-      {/* ==================================================================== */}
-      <section className="relative min-h-[92vh] flex flex-col items-center justify-center px-6 pt-12 pb-8 text-center overflow-hidden">
-        {/* 背景の柔らかな環境光 */}
+      <section className="relative min-h-[92vh] sm:min-h-screen flex flex-col items-center justify-center px-6 pt-12 pb-8 text-center overflow-hidden">
+        {/* 背景の柔らかな環境光（ロード画面で中央に行った星の色！） */}
         <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[340px] h-[340px] sm:w-[460px] sm:h-[460px] rounded-full blur-[120px] opacity-25 pointer-events-none transition-all duration-1000"
-          style={{ backgroundColor: archetype.primaryColor }}
+          className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[130px] pointer-events-none transition-all duration-1000 ease-out ${
+            animStage === 'shard'
+              ? 'w-48 h-48 opacity-25'
+              : 'w-[360px] h-[360px] sm:w-[480px] sm:h-[480px] opacity-35'
+          }`}
+          style={{ backgroundColor: chosenShard.color }}
         />
 
         {/* MBTI コード */}
-        <div className="relative z-10 mb-4 animate-fade-in">
+        <div
+          className={`relative z-10 mb-4 transition-all duration-700 ${
+            animStage === 'crystallized' || animStage === 'revealed'
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 -translate-y-2 pointer-events-none'
+          }`}
+        >
           <span className="inline-block text-xs font-mono font-medium tracking-widest text-gray-400 uppercase">
             ARCHETYPE // {archetype.mbtiCode}
           </span>
         </div>
 
         {/* 水晶球体（クリスタルオーブ） ＆ 内部で無重力浮遊するモッフィー */}
-        <div className="relative z-10 w-64 h-64 sm:w-72 sm:h-72 my-2 flex items-center justify-center animate-fade-in">
-          {/* 外周を旋回する繊細な幾何学リング */}
-          <div className="absolute inset-0 rounded-full border border-dashed border-white/20 animate-spin-slow pointer-events-none" />
-          <div className="absolute -inset-2.5 rounded-full border border-white/10 animate-spin-slow-reverse pointer-events-none" />
+        {/* 🌟 ロード画面で完全中央に収束したカケラから、寸分の狂いもなくシームレスに拡大 */}
+        <div
+          className={`relative z-10 my-2 flex items-center justify-center transition-all duration-1000 ease-out ${
+            animStage === 'shard'
+              ? 'w-64 h-64 sm:w-72 sm:h-72 scale-[0.28]'
+              : 'w-64 h-64 sm:w-72 sm:h-72 scale-100'
+          }`}
+        >
+          {/* 外周を旋回する繊細な幾何学リング（ロード星カラーの薄いアクセント） */}
+          <div
+            className={`absolute inset-0 rounded-full border border-dashed transition-all duration-1000 pointer-events-none ${
+              animStage === 'shard'
+                ? 'opacity-0 scale-50'
+                : 'opacity-100 scale-100 animate-spin-slow'
+            }`}
+            style={{ borderColor: `${chosenShard.color}66` }}
+          />
+          <div
+            className={`absolute -inset-2.5 rounded-full border border-white/10 transition-all duration-1000 pointer-events-none ${
+              animStage === 'shard'
+                ? 'opacity-0 scale-50'
+                : 'opacity-100 scale-100 animate-spin-slow-reverse'
+            }`}
+          />
 
-          {/* 水晶球体 */}
+          {/* 水晶球体本体 */}
           <div
             onTouchStart={canToggle ? handleTouchStart : undefined}
             onTouchEnd={canToggle ? handleTouchEnd : undefined}
             onMouseDown={canToggle ? handleMouseDown : undefined}
             onMouseUp={canToggle ? handleMouseUp : undefined}
-            className={`relative w-56 h-56 sm:w-64 sm:h-64 rounded-full overflow-hidden flex items-center justify-center shadow-[0_0_60px_rgba(0,0,0,0.9),inset_0_0_35px_rgba(255,255,255,0.3)] border border-white/40 backdrop-blur-xl bg-gradient-to-b from-white/15 via-transparent to-black/60 select-none ${
-              canToggle ? 'cursor-grab active:cursor-grabbing hover:border-white/60 transition-colors' : ''
+            className={`relative w-56 h-56 sm:w-64 sm:h-64 rounded-full overflow-hidden flex items-center justify-center border backdrop-blur-xl transition-all duration-1000 ease-out select-none ${
+              animStage === 'shard'
+                ? 'border-transparent bg-transparent shadow-none'
+                : 'border-white/40 bg-gradient-to-b from-white/15 via-transparent to-black/60'
+            } ${
+              canToggle && animStage !== 'shard' ? 'cursor-grab active:cursor-grabbing hover:border-white/60 transition-colors' : ''
             }`}
-            title={canToggle ? 'スワイプまたはタップでスタイル切替' : undefined}
+            style={
+              animStage !== 'shard'
+                ? {
+                    boxShadow: `0 0 55px ${chosenShard.glow}, inset 0 0 35px rgba(255,255,255,0.3), 0 0 80px rgba(0,0,0,0.9)`,
+                  }
+                : undefined
+            }
+            title={canToggle && animStage !== 'shard' ? 'スワイプまたはタップでスタイル切替' : undefined}
           >
-            {/* 内部の微細な環境カラー */}
+            {/* 🌟 内部の微細な環境カラー（ロード画面で中央に行った星の色！） */}
             <div
-              className="absolute inset-0 rounded-full opacity-35 blur-md pointer-events-none"
+              className={`absolute inset-0 rounded-full blur-md pointer-events-none transition-opacity duration-1000 ${
+                animStage === 'shard' ? 'opacity-0' : 'opacity-40'
+              }`}
               style={{
-                background: `radial-gradient(circle at 35% 30%, ${archetype.accentColor} 0%, ${archetype.primaryColor} 50%, transparent 80%)`,
+                background: `radial-gradient(circle at 35% 30%, #ffffff 0%, ${chosenShard.color} 40%, ${chosenShard.glow} 70%, transparent 95%)`,
               }}
             />
 
-            {/* 水晶の内部で優雅に浮遊するモッフィー（スワイプによるスライド＆クロスフェード遷移） */}
-            <div className="relative z-10 animate-crystal-float w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center">
+            {/* 🌟 ロード画面の中央星そのもの（拡大時に光となってモッフィーへ受肉） */}
+            <div
+              className={`absolute flex items-center justify-center transition-all duration-700 pointer-events-none ${
+                animStage === 'shard'
+                  ? 'opacity-100 scale-100'
+                  : 'opacity-0 scale-150'
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="w-16 h-16 fill-white animate-pulse"
+                style={{ filter: `drop-shadow(0 0 20px ${chosenShard.glow})` }}
+              >
+                <path d="M 12 2 Q 12 12 2 12 Q 12 12 12 22 Q 12 12 22 12 Q 12 12 12 2 Z" />
+              </svg>
+            </div>
+
+            {/* 水晶の内部で優雅に浮遊するモッフィー（拡大時にフェードイン受肉） */}
+            <div
+              className={`relative z-10 w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center transition-all duration-1000 ease-out ${
+                animStage === 'shard'
+                  ? 'opacity-0 scale-30 pointer-events-none'
+                  : 'opacity-100 scale-100 animate-crystal-float'
+              }`}
+            >
               {/* ノーマルモッフィー */}
               <img
                 src={normalImgSrc}
@@ -275,13 +318,23 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
             </div>
 
             {/* ガラス表面の光沢ハイライト */}
-            <div className="absolute top-2 left-6 right-6 h-20 rounded-full bg-gradient-to-b from-white/30 to-transparent pointer-events-none blur-[1px]" />
+            <div
+              className={`absolute top-2 left-6 right-6 h-20 rounded-full bg-gradient-to-b from-white/30 to-transparent pointer-events-none blur-[1px] transition-opacity duration-1000 ${
+                animStage === 'shard' ? 'opacity-0' : 'opacity-100'
+              }`}
+            />
           </div>
         </div>
 
         {/* スタイル切替コントロール（Google流ミニマル・ピルタブ） */}
         {canToggle && (
-          <div className="relative z-20 flex flex-col items-center gap-1 animate-fade-in mt-1 mb-3">
+          <div
+            className={`relative z-20 flex flex-col items-center gap-1 mt-1 mb-3 transition-all duration-700 ${
+              animStage === 'crystallized' || animStage === 'revealed'
+                ? 'opacity-100 translate-y-0'
+                : 'opacity-0 translate-y-2 pointer-events-none'
+            }`}
+          >
             <div className="inline-flex items-center p-0.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
               <button
                 type="button"
@@ -313,7 +366,13 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
         )}
 
         {/* モッフィーの名称と称号 */}
-        <div className="relative z-10 mt-5 max-w-md mx-auto animate-fade-in">
+        <div
+          className={`relative z-10 mt-5 max-w-md mx-auto transition-all duration-700 ${
+            animStage === 'crystallized' || animStage === 'revealed'
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 translate-y-4 pointer-events-none'
+          }`}
+        >
           <h1 className="text-2xl sm:text-4xl font-bold text-white mb-2 tracking-tight">
             {archetype.title}
           </h1>
@@ -327,21 +386,24 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
           )}
         </div>
 
-        {/* スクロール案内 */}
-        <div className="relative z-10 mt-12 flex flex-col items-center gap-1 animate-bounce text-gray-400 select-none">
-          <span className="text-[11px] font-medium tracking-wider text-gray-500">
-            スクロールして詳細を見る
-          </span>
-          <ChevronDown className="w-4 h-4 text-gray-400" />
-        </div>
+        {/* スクロール案内（演出完了後に下部に生成） */}
+        {animStage === 'revealed' && (
+          <div className="relative z-10 mt-12 flex flex-col items-center gap-1 animate-fade-in text-gray-400 select-none">
+            <span className="text-[11px] font-medium tracking-wider text-gray-500">
+              スクロールして詳細を見る
+            </span>
+            <ChevronDown className="w-4 h-4 text-gray-400 animate-bounce" />
+          </div>
+        )}
       </section>
 
       {/* ==================================================================== */}
-      {/* SECTION 3: スクロールで現れる詳細リザルト（ボックス全廃・Google流フラット） */}
+      {/* SECTION 3: 水晶玉の受肉演出完了後に下部に生成展開される詳細リザルト */}
       {/* ==================================================================== */}
-      <main className="max-w-xl mx-auto px-6 divide-y divide-white/10">
-        {/* 1. モッフィーの本質とストーリー */}
-        <div className="py-10">
+      {animStage === 'revealed' && (
+        <main className="max-w-xl mx-auto px-6 divide-y divide-white/10 animate-fade-in">
+          {/* 1. モッフィーの本質とストーリー */}
+          <div className="py-10">
           <span className="text-xs font-mono tracking-widest uppercase text-[#1a73e8] block mb-3 font-semibold">
             ABOUT THIS MOFFY
           </span>
@@ -566,6 +628,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
           </button>
         </div>
       </main>
+      )}
     </div>
   );
 };

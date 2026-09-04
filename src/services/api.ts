@@ -55,7 +55,7 @@ export async function checkApiHealth(): Promise<{ authenticated: boolean; name: 
 export async function registerUserProfile(
   discordUserId: string,
   password: string,
-  photoBlob: Blob
+  photoBlob?: Blob | File | null
 ): Promise<RegistrationResult> {
   const baseUrl = getApiBaseUrl();
   const apiKey = getApiKey();
@@ -65,7 +65,10 @@ export async function registerUserProfile(
   const formData = new FormData();
   formData.append('discord_user_id', discordUserId);
   formData.append('password', password);
-  formData.append('photo', photoBlob, `${discordUserId}_card.png`);
+  if (photoBlob) {
+    const filename = photoBlob instanceof File ? photoBlob.name : `${discordUserId}_card.png`;
+    formData.append('photo', photoBlob, filename);
+  }
 
   const res = await fetch(`${baseUrl}/api/v1/profile`, {
     method: 'POST',
@@ -291,6 +294,74 @@ export async function updateArrangedPhoto(
 
   if (!res.ok) {
     let errorDetail = 'アレンジ画像更新に失敗しました';
+    try {
+      const errJson = await res.json();
+      if (errJson.detail) {
+        errorDetail = typeof errJson.detail === 'string'
+          ? errJson.detail
+          : JSON.stringify(errJson.detail);
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(errorDetail);
+  }
+
+  return await res.json();
+}
+
+/**
+ * プロフィール写真（1枚目デフォルト・2枚目アレンジ、または両方）を更新します。
+ * POST /api/v1/profile/photo
+ */
+export async function updateProfilePhotos(
+  discordUserId: string,
+  params: {
+    defaultPhoto?: Blob | File | string | null;
+    arrangedPhoto?: Blob | File | string | null;
+  }
+): Promise<PartnerProfileResponse> {
+  const baseUrl = getApiBaseUrl();
+  const apiKey = getApiKey();
+
+  const formData = new FormData();
+  formData.append('discord_user_id', discordUserId);
+
+  if (params.defaultPhoto) {
+    if (typeof params.defaultPhoto === 'string') {
+      formData.append('default_photo_url', params.defaultPhoto);
+    } else {
+      const filename = params.defaultPhoto instanceof File ? params.defaultPhoto.name : `${discordUserId}_default.png`;
+      formData.append('default_photo', params.defaultPhoto, filename);
+    }
+  }
+
+  if (params.arrangedPhoto) {
+    if (typeof params.arrangedPhoto === 'string') {
+      formData.append('arranged_photo_url', params.arrangedPhoto);
+    } else {
+      const filename = params.arrangedPhoto instanceof File ? params.arrangedPhoto.name : `${discordUserId}_arranged.png`;
+      formData.append('arranged_photo', params.arrangedPhoto, filename);
+    }
+  }
+
+  if (apiKey) {
+    formData.append('api_key_form', apiKey);
+  }
+
+  const headers: Record<string, string> = {};
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey;
+  }
+
+  const res = await fetch(`${baseUrl}/api/v1/profile/photo`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    let errorDetail = 'プロフィール写真の更新に失敗しました';
     try {
       const errJson = await res.json();
       if (errJson.detail) {

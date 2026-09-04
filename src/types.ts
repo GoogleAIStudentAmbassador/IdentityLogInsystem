@@ -4,6 +4,20 @@ export type MbtiType =
   | 'ISTJ' | 'ISFJ' | 'ESTJ' | 'ESFJ'
   | 'ISTP' | 'ISFP' | 'ESTP' | 'ESFP';
 
+export interface ShardPalette {
+  name: 'blue' | 'red' | 'yellow' | 'green';
+  color: string;
+  glow: string;
+}
+
+export const SHARD_PALETTES: ShardPalette[] = [
+  { name: 'blue', color: '#4285f4', glow: 'rgba(66, 133, 244, 0.7)' },
+  { name: 'red', color: '#ea4335', glow: 'rgba(234, 67, 53, 0.7)' },
+  { name: 'yellow', color: '#fbbc04', glow: 'rgba(251, 188, 4, 0.7)' },
+  { name: 'green', color: '#34a853', glow: 'rgba(52, 168, 83, 0.7)' },
+];
+
+
 export interface LikertQuestion {
   id: number;
   text: string;

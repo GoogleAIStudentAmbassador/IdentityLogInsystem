@@ -58,6 +58,7 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
   const [touched, setTouched] = useState<Set<number>>(new Set());
   const [revealedCount, setRevealedCount] = useState(1);
   const [scrollY, setScrollY] = useState(0);
+  const [answerPulse, setAnswerPulse] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // マウント時に確実にトップへスクロール
@@ -106,6 +107,9 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
   const handleSelectScore = (questionId: number, score: number, index: number) => {
     setAnswers((prev) => ({ ...prev, [questionId]: score }));
 
+    // 🌟 回答した瞬間に中央の星へ推進パルスを発火（下へ移動したかのような残像を生成）
+    setAnswerPulse((prev) => prev + 1);
+
     if (!touched.has(questionId)) {
       setTouched((prev) => {
         const newSet = new Set(prev);
@@ -146,24 +150,72 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
     return `linear-gradient(180deg, #ffffff 0%, rgb(${midRgb}, ${midRgb}, ${midRgb}) 50%, rgb(${endRgb}, ${endRgb}, ${endRgb}) 100%)`;
   };
 
+  // 🌟 降下テレメトリ：高度（月軌道 384,400km 〜 地球地表 0km）
+  const getAltitudeText = (ansCount: number, isLastAnswered: boolean): string => {
+    if (isLastAnswered) return '0 km (TERRA SURFACE)';
+    const altTable = [
+      '384,400 km', // 0
+      '320,000 km', // 1
+      '240,000 km', // 2
+      '160,000 km', // 3
+      '90,000 km',  // 4
+      '50,000 km',  // 5
+      '35,786 km (GEO)', // 6
+      '15,000 km',  // 7
+      '5,000 km',   // 8
+      '2,000 km (LEO)',  // 9
+      '500 km',     // 10
+      '100 km (KÁRMÁN)', // 11
+      '0 km (TERRA)',    // 12
+    ];
+    return altTable[Math.min(ansCount, altTable.length - 1)];
+  };
+
+  // 🌟 生存残存シグナル（精子の3億個から唯一の受精 1個へ収束する伏線）
+  const getSurvivalText = (ansCount: number, isLastAnswered: boolean): string => {
+    if (isLastAnswered) return '1 / 300,000,000 (0.0000003%)';
+    const survivalTable = [
+      '300,000,000', // 0 (100%)
+      '120,000,000', // 1
+      '45,000,000',  // 2
+      '10,000,000',  // 3
+      '2,000,000',   // 4
+      '350,000',     // 5
+      '50,000',      // 6
+      '5,000',       // 7
+      '600',         // 8
+      '80',          // 9
+      '12',          // 10
+      '2',           // 11
+      '1 / 300,000,000', // 12
+    ];
+    return survivalTable[Math.min(ansCount, survivalTable.length - 1)];
+  };
+
   return (
     <div
       className="relative w-full min-h-screen flex flex-col items-center pb-32 transition-all duration-700 ease-out"
       style={{ background: getBackground() }}
     >
-      {/* 🌟 超軽量 Canvas 星空（1問目は全黒星、進むにつれ下部が白星に変化） */}
-      <StarField revealedCount={revealedCount} totalCount={totalQ} isBlackout={isLastQuestionAnswered} />
+      {/* 🌟 超軽量 Canvas 星空（周囲の星はスクロール追従、中央の星は固定＋回答時に下への推進残像を上空へ放つ） */}
+      <StarField
+        revealedCount={revealedCount}
+        totalCount={totalQ}
+        isBlackout={isLastQuestionAnswered}
+        answerPulse={answerPulse}
+        answerIndex={touched.size}
+      />
 
       {/* スティッキー進捗ヘッダー */}
       <div
-        className={`sticky top-12 left-0 right-0 z-30 px-6 py-3 flex justify-center w-full transition-colors duration-500 border-b ${
+        className={`sticky top-12 left-0 right-0 z-30 px-6 py-2.5 flex justify-center w-full transition-colors duration-500 border-b ${
           isHeaderDark
-            ? 'bg-black/80 border-white/10 text-white'
-            : 'bg-white/90 border-gray-100 text-gray-900'
+            ? 'bg-black/85 border-white/10 text-white backdrop-blur-md'
+            : 'bg-white/90 border-gray-100 text-gray-900 backdrop-blur-md'
         }`}
       >
         <div className="w-full max-w-sm">
-          <div className="flex justify-between items-center mb-1.5">
+          <div className="flex justify-between items-center mb-1">
             <span
               className={`text-xs font-semibold transition-colors duration-500 ${
                 isHeaderDark ? 'text-gray-300' : 'text-gray-600'
@@ -185,6 +237,34 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
               className="h-full bg-[#1a73e8] transition-all duration-500 ease-out rounded-full"
               style={{ width: `${progress}%` }}
             />
+          </div>
+
+          {/* 🌟 さりげない環境テレメトリ（高度計 ＆ 3億分の1生存率） */}
+          <div
+            className={`flex justify-between items-center mt-1.5 font-mono text-[9.5px] tracking-tight transition-colors duration-500 select-none ${
+              isHeaderDark ? 'text-gray-400' : 'text-gray-500'
+            }`}
+          >
+            <div className="flex items-center gap-1">
+              <span className={isHeaderDark ? 'text-gray-500' : 'text-gray-400'}>ALT:</span>
+              <span className={`font-semibold ${isHeaderDark ? 'text-cyan-300' : 'text-blue-600'}`}>
+                {getAltitudeText(touched.size, isLastQuestionAnswered)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className={isHeaderDark ? 'text-gray-500' : 'text-gray-400'}>SIGNALS:</span>
+              <span
+                className={`font-semibold ${
+                  isLastQuestionAnswered
+                    ? 'text-emerald-400 font-bold drop-shadow-[0_0_6px_rgba(52,211,153,0.6)]'
+                    : isHeaderDark
+                    ? 'text-amber-300'
+                    : 'text-amber-600'
+                }`}
+              >
+                {getSurvivalText(touched.size, isLastQuestionAnswered)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -224,9 +304,9 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
                   <div className="w-full h-[2px] bg-gradient-to-r from-transparent via-white/80 to-transparent shadow-sm" />
 
                   {/* 境界バッジ */}
-                  <div className="relative -top-3 px-3 py-0.5 rounded-full bg-black/90 border border-white/25 text-[10px] font-mono tracking-widest text-white uppercase shadow-md flex items-center gap-1.5">
+                  <div className="relative -top-3 px-3.5 py-0.5 rounded-full bg-black/90 border border-white/25 text-[10px] font-mono tracking-wider text-white uppercase shadow-md flex items-center gap-1.5">
                     <Sparkles className="w-3 h-3 text-yellow-300 animate-spin" />
-                    <span>世界の境目 — FINAL QUESTION</span>
+                    <span>世界の境目 (KÁRMÁN LINE) — FINAL QUESTION</span>
                   </div>
                 </div>
               )}
