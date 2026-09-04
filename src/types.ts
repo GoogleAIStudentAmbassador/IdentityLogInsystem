@@ -47,9 +47,65 @@ export interface Archetype {
 export interface RegistrationResult {
   discord_user_id: string;
   photo_url: string;
+  default_photo_url?: string;
+  arranged_photo_url?: string | null;
   created_at: string;
   updated_at: string;
   google_id: string | null;
 }
 
-export type GameStage = 'intro' | 'quiz' | 'password' | 'generating' | 'result';
+export interface MoffyChecks {
+  has_no_nose: boolean;
+  has_four_pointed_star_pupils: boolean;
+  has_gemini_or_magical_eyes: boolean;
+  is_fluffy_3dcg: boolean;
+  has_chubby_cute_silhouette: boolean;
+}
+
+export interface VerifyMoffyResponse {
+  is_moffy: boolean;
+  confidence_score: number;
+  confidence?: number | null;
+  category: string;
+  checks: MoffyChecks;
+  reason: string;
+}
+
+export interface CreateMoffyParams {
+  color: string;
+  expression: string;
+  hair_features: string;
+  body_shape: string;
+  body_features: string;
+  mouth_features: string;
+  accessories?: string;
+}
+
+export interface CreateMoffyResponse {
+  status: string;
+  image_url: string;
+  prompt_used: string;
+  created_at: string;
+  base64_data?: string | null;
+}
+
+export interface EditImageResponse {
+  status: string;
+  image_url: string;
+  prompt_used: string;
+  created_at: string;
+  base64_data?: string | null;
+}
+
+export interface PartnerProfileResponse {
+  discord_user_id: string;
+  photo_url: string;
+  default_photo_url: string;
+  arranged_photo_url?: string | null;
+  created_at: string;
+  updated_at: string;
+  google_id?: string | null;
+}
+
+export type GameStage = 'intro' | 'quiz' | 'customize' | 'generating' | 'result';
+

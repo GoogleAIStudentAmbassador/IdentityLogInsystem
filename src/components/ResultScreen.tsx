@@ -17,6 +17,9 @@ interface ResultScreenProps {
   discordUserId: string;
   traitScores?: Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> | null;
   regResult: RegistrationResult | null;
+  customImageUrl?: string;
+  normalImageUrl?: string;
+  equippedImageUrl?: string;
   onReset: () => void;
 }
 
@@ -26,10 +29,21 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   discordUserId,
   traitScores,
   regResult,
+  customImageUrl,
+  normalImageUrl,
+  equippedImageUrl,
   onReset,
 }) => {
   // 星の破片から水晶球体への結晶化フェーズ ('fracturing' -> 'crystallized')
   const [phase, setPhase] = useState<'fracturing' | 'crystallized'>('fracturing');
+  // 水晶球体内のスタイルモード: 'equipped' (アクセサリー装備) | 'normal' (ノーマル)
+  const [activeMode, setActiveMode] = useState<'equipped' | 'normal'>('equipped');
+
+  // スワイプ / ドラッグ判定用の参照
+  const touchStartX = React.useRef<number | null>(null);
+  const touchStartY = React.useRef<number | null>(null);
+  const mouseStartX = React.useRef<number | null>(null);
+  const isDragging = React.useRef<boolean>(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -84,11 +98,67 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
     .trim();
 
   const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
-  const moffyImgSrc = archetype.officialImageUrl
+  const defaultMoffyImg = archetype.officialImageUrl
     ? archetype.officialImageUrl.startsWith('http')
       ? archetype.officialImageUrl
       : `${baseUrl}${archetype.officialImageUrl.replace(/^\/+/, '')}`
     : `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`;
+
+  // アクセサリー装備モッフィー（優先: equippedImageUrl -> customImageUrl -> defaultMoffyImg）
+  const equippedImgSrc = equippedImageUrl || customImageUrl || defaultMoffyImg;
+  // ノーマルモッフィー（優先: normalImageUrl -> defaultMoffyImg）
+  const normalImgSrc = normalImageUrl || defaultMoffyImg;
+
+  // 2つのスタイルが異なっていればスワイプ可能
+  const canToggle = equippedImgSrc !== normalImgSrc;
+
+  // 水平スワイプ / ドラッグ処理
+  const toggleMode = () => {
+    setActiveMode((prev) => (prev === 'equipped' ? 'normal' : 'equipped'));
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+    if (Math.abs(deltaX) > 28 && Math.abs(deltaX) > Math.abs(deltaY) * 1.1) {
+      if (deltaX > 0) {
+        // 右スワイプ: ノーマルへ
+        setActiveMode('normal');
+      } else {
+        // 左スワイプ: 装備へ
+        setActiveMode('equipped');
+      }
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    mouseStartX.current = e.clientX;
+    isDragging.current = true;
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (!isDragging.current || mouseStartX.current === null) return;
+    isDragging.current = false;
+    const deltaX = e.clientX - mouseStartX.current;
+    if (Math.abs(deltaX) > 28) {
+      if (deltaX > 0) {
+        setActiveMode('normal');
+      } else {
+        setActiveMode('equipped');
+      }
+    } else {
+      toggleMode();
+    }
+    mouseStartX.current = null;
+  };
 
   return (
     <div className="min-h-screen bg-black text-white selection:bg-blue-900 selection:text-white pb-32">
@@ -155,13 +225,22 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
         </div>
 
         {/* 水晶球体（クリスタルオーブ） ＆ 内部で無重力浮遊するモッフィー */}
-        <div className="relative z-10 w-64 h-64 sm:w-72 sm:h-72 my-3 flex items-center justify-center animate-fade-in">
+        <div className="relative z-10 w-64 h-64 sm:w-72 sm:h-72 my-2 flex items-center justify-center animate-fade-in">
           {/* 外周を旋回する繊細な幾何学リング */}
           <div className="absolute inset-0 rounded-full border border-dashed border-white/20 animate-spin-slow pointer-events-none" />
           <div className="absolute -inset-2.5 rounded-full border border-white/10 animate-spin-slow-reverse pointer-events-none" />
 
           {/* 水晶球体 */}
-          <div className="relative w-56 h-56 sm:w-64 sm:h-64 rounded-full overflow-hidden flex items-center justify-center shadow-[0_0_60px_rgba(0,0,0,0.9),inset_0_0_35px_rgba(255,255,255,0.3)] border border-white/40 backdrop-blur-xl bg-gradient-to-b from-white/15 via-transparent to-black/60">
+          <div
+            onTouchStart={canToggle ? handleTouchStart : undefined}
+            onTouchEnd={canToggle ? handleTouchEnd : undefined}
+            onMouseDown={canToggle ? handleMouseDown : undefined}
+            onMouseUp={canToggle ? handleMouseUp : undefined}
+            className={`relative w-56 h-56 sm:w-64 sm:h-64 rounded-full overflow-hidden flex items-center justify-center shadow-[0_0_60px_rgba(0,0,0,0.9),inset_0_0_35px_rgba(255,255,255,0.3)] border border-white/40 backdrop-blur-xl bg-gradient-to-b from-white/15 via-transparent to-black/60 select-none ${
+              canToggle ? 'cursor-grab active:cursor-grabbing hover:border-white/60 transition-colors' : ''
+            }`}
+            title={canToggle ? 'スワイプまたはタップでスタイル切替' : undefined}
+          >
             {/* 内部の微細な環境カラー */}
             <div
               className="absolute inset-0 rounded-full opacity-35 blur-md pointer-events-none"
@@ -170,25 +249,68 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
               }}
             />
 
-            {/* 水晶の内部で優雅に浮遊するモッフィー */}
-            <div className="relative z-10 animate-crystal-float">
-              {moffyImgSrc ? (
-                <img
-                  src={moffyImgSrc}
-                  alt={archetype.title}
-                  className="w-40 h-40 sm:w-48 sm:h-48 object-cover rounded-full select-none pointer-events-none drop-shadow-[0_12px_24px_rgba(0,0,0,0.7)]"
-                />
-              ) : (
-                <div className="w-40 h-40 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-xl font-mono text-gray-400">
-                  {archetype.mbtiCode}
-                </div>
-              )}
+            {/* 水晶の内部で優雅に浮遊するモッフィー（スワイプによるスライド＆クロスフェード遷移） */}
+            <div className="relative z-10 animate-crystal-float w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center">
+              {/* ノーマルモッフィー */}
+              <img
+                src={normalImgSrc}
+                alt={`${archetype.title} (Normal)`}
+                className={`absolute inset-0 w-full h-full object-cover rounded-full select-none pointer-events-none drop-shadow-[0_12px_24px_rgba(0,0,0,0.7)] transition-all duration-500 ease-out ${
+                  activeMode === 'normal'
+                    ? 'opacity-100 scale-100 translate-x-0'
+                    : 'opacity-0 scale-90 -translate-x-6 pointer-events-none'
+                }`}
+              />
+
+              {/* アクセサリー装備モッフィー */}
+              <img
+                src={equippedImgSrc}
+                alt={`${archetype.title} (Equipped)`}
+                className={`absolute inset-0 w-full h-full object-cover rounded-full select-none pointer-events-none drop-shadow-[0_12px_24px_rgba(0,0,0,0.7)] transition-all duration-500 ease-out ${
+                  activeMode === 'equipped'
+                    ? 'opacity-100 scale-100 translate-x-0'
+                    : 'opacity-0 scale-90 translate-x-6 pointer-events-none'
+                }`}
+              />
             </div>
 
             {/* ガラス表面の光沢ハイライト */}
             <div className="absolute top-2 left-6 right-6 h-20 rounded-full bg-gradient-to-b from-white/30 to-transparent pointer-events-none blur-[1px]" />
           </div>
         </div>
+
+        {/* スタイル切替コントロール（Google流ミニマル・ピルタブ） */}
+        {canToggle && (
+          <div className="relative z-20 flex flex-col items-center gap-1 animate-fade-in mt-1 mb-3">
+            <div className="inline-flex items-center p-0.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
+              <button
+                type="button"
+                onClick={() => setActiveMode('normal')}
+                className={`px-3.5 py-1 rounded-full text-xs font-mono tracking-wider transition-all duration-300 cursor-pointer ${
+                  activeMode === 'normal'
+                    ? 'bg-white/20 text-white font-semibold shadow-sm'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                NORMAL
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveMode('equipped')}
+                className={`px-3.5 py-1 rounded-full text-xs font-mono tracking-wider transition-all duration-300 cursor-pointer ${
+                  activeMode === 'equipped'
+                    ? 'bg-white/20 text-white font-semibold shadow-sm'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                EQUIPPED
+              </button>
+            </div>
+            <span className="text-[10px] font-mono tracking-widest text-gray-500 select-none">
+              ‹ 水晶をスワイプで切替 ›
+            </span>
+          </div>
+        )}
 
         {/* モッフィーの名称と称号 */}
         <div className="relative z-10 mt-5 max-w-md mx-auto animate-fade-in">

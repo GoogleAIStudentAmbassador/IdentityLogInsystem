@@ -1,8 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowRight, HelpCircle, Sparkles, CheckCircle2, ChevronDown, Upload, Check } from 'lucide-react';
+import {
+  ArrowRight,
+  HelpCircle,
+  Sparkles,
+  CheckCircle2,
+  ChevronDown,
+  Upload,
+  Check,
+  ShieldCheck,
+  AlertTriangle,
+  Loader2,
+  XCircle,
+} from 'lucide-react';
 import { OrbitingStars } from './OrbitingStars';
+import { verifyMoffyImage } from '../services/api';
+import type { VerifyMoffyResponse } from '../types';
 
 export interface OnboardingData {
+
   discordUserId: string;
   password: string;
   hasMoffy: boolean;
@@ -39,6 +54,11 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   const [uploadedFile, setUploadedFile] = useState<File | Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
+  // モッフィーAI画像鑑定ステート (Gemini 3.8 Flash)
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<VerifyMoffyResponse | null>(null);
+  const [verifyWarning, setVerifyWarning] = useState<string | null>(null);
+
   const [showGuide, setShowGuide] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,14 +87,20 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   const isAuthCompleted = isIdCompleted && isPasswordCompleted && isConfirmPasswordCompleted;
 
   // 4. モッフィー所持ステップ完了判定（サインアップ時のみ）
+  // モッフィー所持の場合は、画像がアップロードされ、AI鑑定でモッフィーと判定されるか、フォールバック承認されている必要がある
   const isMoffyStepCompleted =
-    hasMoffy === false || (hasMoffy === true && uploadedFile !== null);
+    hasMoffy === false ||
+    (hasMoffy === true &&
+      uploadedFile !== null &&
+      !isVerifying &&
+      (verifyResult?.is_moffy === true || verifyWarning !== null));
 
   // 続行可能かどうかの判定
   const isContinueAvailable =
     authMode === 'signin'
       ? isIdCompleted && isPasswordCompleted
       : isAuthCompleted && isMoffyStepCompleted;
+
 
   // 🌟 現在フォーカスすべきターゲット（星々が周回する対象）
   const getActiveTarget = (): 'id' | 'password' | 'confirmPassword' | 'moffy' | 'upload' | 'continue' => {
@@ -83,7 +109,12 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     if (authMode === 'signup') {
       if (!isConfirmPasswordCompleted) return 'confirmPassword';
       if (hasMoffy === null) return 'moffy';
-      if (hasMoffy === true && !uploadedFile) return 'upload';
+      if (
+        hasMoffy === true &&
+        (!uploadedFile || isVerifying || (verifyResult && !verifyResult.is_moffy && !verifyWarning))
+      ) {
+        return 'upload';
+      }
     }
     return 'continue';
   };
@@ -140,18 +171,42 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     }
   }, [authMode, hasMoffy, uploadedFile, isMoffyStepCompleted, isPasswordCompleted]);
 
-  // 画像アップロードハンドラ
-  const handleFileChange = (file: File | null) => {
+  // 画像アップロードハンドラ（Gemini 3.8 Flash によるリアルタイムAI画像鑑定つき）
+  const handleFileChange = async (file: File | null) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       setError('画像ファイル（PNG, JPG, WEBP等）を選択してください');
       return;
     }
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_FILE_SIZE) {
+      setError('ファイルサイズは10MB以下にしてください');
+      return;
+    }
     setError(null);
+    setVerifyWarning(null);
+    setVerifyResult(null);
     setUploadedFile(file);
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
+
+    // AI鑑定の開始
+    setIsVerifying(true);
+    try {
+      const result = await verifyMoffyImage(file);
+      setVerifyResult(result);
+      if (!result.is_moffy) {
+        setError('アップロードされた画像はモッフィーの公式特徴を満たしていません');
+      }
+    } catch (err: unknown) {
+      console.warn('AI verification fallback:', err);
+      // APIキー未設定やネットワークエラー時は開発を止めないよう警告付きでフォールバック
+      setVerifyWarning('※AI鑑定サーバーに接続できませんでした（オフライン承認モード）');
+    } finally {
+      setIsVerifying(false);
+    }
   };
+
 
   // 続行するボタン押下
   const handleContinueSubmit = (e: React.FormEvent) => {
@@ -173,13 +228,24 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
         setError('モッフィーを所持しているか選択してください');
         return;
       }
-      if (hasMoffy === true && !uploadedFile) {
-        setError('モッフィー画像をアップロードしてください');
-        return;
+      if (hasMoffy === true) {
+        if (!uploadedFile) {
+          setError('モッフィー画像をアップロードしてください');
+          return;
+        }
+        if (isVerifying) {
+          setError('AIがモッフィー画像を鑑定中です。完了まで少しお待ちください');
+          return;
+        }
+        if (verifyResult && !verifyResult.is_moffy && !verifyWarning) {
+          setError('モッフィーの公式特徴（鼻なし・四芒星瞳など）を満たした画像をアップロードしてください');
+          return;
+        }
       }
     }
 
     setError(null);
+
     onContinue({
       discordUserId: discordId.trim(),
       password,
@@ -466,8 +532,12 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                       onClick={() => {
                         setHasMoffy(false);
                         setPreviewUrl(null);
+                        setVerifyResult(null);
+                        setVerifyWarning(null);
+                        setError(null);
                         
                         // Generate blank white image for API requirement
+
                         const canvas = document.createElement('canvas');
                         canvas.width = 800;
                         canvas.height = 800;
@@ -507,29 +577,160 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                   {activeTarget === 'upload' && <OrbitingStars count={5} isDark={true} />}
 
                   {previewUrl ? (
-                    <div className="relative z-10 rounded-3xl border border-gray-700 bg-gray-800 p-4 flex items-center gap-4 animate-fade-in">
-                      <img
-                        src={previewUrl}
-                        alt="Uploaded preview"
-                        className="w-16 h-16 rounded-2xl object-cover border border-gray-600 shadow-sm"
-                      />
-                      <div className="flex-1 text-left truncate">
-                        <p className="text-xs font-semibold text-gray-300 truncate">
-                          {uploadedFile instanceof File ? uploadedFile.name : 'uploaded_photo.png'}
-                        </p>
-                        <p className="text-[11px] text-gray-400">
-                          {uploadedFile ? `${(uploadedFile.size / 1024).toFixed(1)} KB` : ''}
-                        </p>
+                    <div className="relative z-10 rounded-3xl border border-gray-700 bg-gray-800 p-4 flex flex-col gap-3 animate-fade-in">
+                      <div className="flex items-center gap-4">
+                        <div className="relative w-16 h-16 shrink-0">
+                          <img
+                            src={previewUrl}
+                            alt="Uploaded preview"
+                            className="w-16 h-16 rounded-2xl object-cover border border-gray-600 shadow-sm"
+                          />
+                          {isVerifying && (
+                            <div className="absolute inset-0 rounded-2xl bg-black/60 backdrop-blur-xs flex items-center justify-center">
+                              <Loader2 className="w-6 h-6 text-google-blue animate-spin" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 text-left truncate">
+                          <p className="text-xs font-semibold text-gray-300 truncate">
+                            {uploadedFile instanceof File ? uploadedFile.name : 'uploaded_photo.png'}
+                          </p>
+                          <p className="text-[11px] text-gray-400">
+                            {uploadedFile ? `${(uploadedFile.size / 1024).toFixed(1)} KB` : ''}
+                          </p>
+                        </div>
+                        <label className="px-3 py-1.5 rounded-full bg-gray-700 border border-gray-600 text-xs font-medium text-gray-300 hover:bg-gray-600 cursor-pointer shadow-xs">
+                          変更
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+                          />
+                        </label>
                       </div>
-                      <label className="px-3 py-1.5 rounded-full bg-gray-700 border border-gray-600 text-xs font-medium text-gray-300 hover:bg-gray-600 cursor-pointer shadow-xs">
-                        変更
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
-                        />
-                      </label>
+
+                      {/* AI鑑定中 */}
+                      {isVerifying && (
+                        <div className="p-3 rounded-2xl bg-blue-950/40 border border-blue-800/60 text-xs text-blue-200 flex items-center gap-2.5 animate-pulse">
+                          <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0" />
+                          <div className="flex-1">
+                            <span className="font-semibold">Gemini 3.8 Flash で鑑定中...</span>
+                            <p className="text-[10px] text-blue-300/80">モッフィーの公式特徴（鼻なし・四芒星瞳・Geminiカラー）をスキャンしています</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AI鑑定結果: 合格 */}
+                      {!isVerifying && verifyResult?.is_moffy && (
+                        <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-800/60 text-xs text-emerald-200 space-y-2 animate-fade-in">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 font-bold text-emerald-300">
+                              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                              <span>公式モッフィー認定！</span>
+                            </div>
+                            <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-900/60 text-emerald-300 border border-emerald-700/50">
+                              適合度 {Math.round(verifyResult.confidence_score * 100)}%
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-emerald-200/90 leading-relaxed">
+                            {verifyResult.reason}
+                          </p>
+                          {/* 5大チェック項目のパス一覧 */}
+                          <div className="grid grid-cols-2 gap-1 text-[10px] text-emerald-300/90 pt-1 border-t border-emerald-800/40">
+                            <div className="flex items-center gap-1">
+                              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                              <span>鼻なし（規約準拠）</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                              <span>四芒星ハイライト</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                              <span>Geminiカラー虹彩</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                              <span>ふわふわ3DCG質感</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AI鑑定結果: 不合格 */}
+                      {!isVerifying && verifyResult && !verifyResult.is_moffy && (
+                        <div className="p-3 rounded-2xl bg-red-950/40 border border-red-800/60 text-xs text-red-200 space-y-2 animate-fade-in">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 font-bold text-red-300">
+                              <XCircle className="w-4 h-4 text-red-400" />
+                              <span>モッフィーとして認識されませんでした</span>
+                            </div>
+                            <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 border border-red-700/50">
+                              適合度 {Math.round(verifyResult.confidence_score * 100)}%
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-red-200/90 leading-relaxed">
+                            {verifyResult.reason}
+                          </p>
+                          {/* 未達項目の明示 */}
+                          <div className="space-y-1 text-[10px] text-red-300/90 pt-1 border-t border-red-800/40">
+                            {verifyResult.checks && !verifyResult.checks.has_no_nose && (
+                              <div className="flex items-center gap-1 text-red-400">
+                                <span>⚠️ 鼻が検出されました（モッフィーは鼻なしが公式ルールです）</span>
+                              </div>
+                            )}
+                            {verifyResult.checks && !verifyResult.checks.has_four_pointed_star_pupils && (
+                              <div className="flex items-center gap-1 text-red-400">
+                                <span>⚠️ 瞳に白い四芒星ハイライトがありません</span>
+                              </div>
+                            )}
+                            {verifyResult.checks && !verifyResult.checks.has_gemini_or_magical_eyes && (
+                              <div className="flex items-center gap-1 text-red-400">
+                                <span>⚠️ Geminiブランドカラーの瞳が確認できません</span>
+                              </div>
+                            )}
+                            {verifyResult.checks && !verifyResult.checks.is_fluffy_3dcg && (
+                              <div className="flex items-center gap-1 text-red-400">
+                                <span>⚠️ ふわふわの3DCGぬいぐるみ質感が確認できません</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="pt-2 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHasMoffy(false);
+                                setUploadedFile(null);
+                                setPreviewUrl(null);
+                                setVerifyResult(null);
+                                setError(null);
+                                // 白画像フォールバック生成
+                                const canvas = document.createElement('canvas');
+                                canvas.width = 800;
+                                canvas.height = 800;
+                                const ctx = canvas.getContext('2d')!;
+                                ctx.fillStyle = '#ffffff';
+                                ctx.fillRect(0, 0, 800, 800);
+                                canvas.toBlob((blob) => {
+                                  if (blob) setUploadedFile(blob);
+                                }, 'image/png');
+                              }}
+                              className="text-[11px] text-red-300 underline hover:text-white cursor-pointer"
+                            >
+                              モッフィーを持っていない（後で生成する）に変更
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* オフライン/フォールバック警告 */}
+                      {!isVerifying && verifyWarning && (
+                        <div className="p-2.5 rounded-2xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-300 flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span className="text-[11px]">{verifyWarning}</span>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <label className="relative z-10 flex flex-col items-center justify-center w-full h-36 rounded-3xl border-2 border-dashed border-gray-600 hover:border-google-blue bg-gray-800/60 hover:bg-gray-800/80 transition-all cursor-pointer p-4 group">

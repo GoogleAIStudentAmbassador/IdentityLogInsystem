@@ -9,7 +9,8 @@ import type { Archetype } from '../types';
  */
 export async function generateProfileCardBlob(
   archetype: Archetype,
-  _discordUserId?: string
+  _discordUserId?: string,
+  customImage?: string | Blob | null
 ): Promise<{ blob: Blob; dataUrl: string }> {
   const canvas = document.createElement('canvas');
   canvas.width = 800;
@@ -96,10 +97,38 @@ export async function generateProfileCardBlob(
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // 公式AI画像の読み込み試行
+  // カスタム画像がある場合はBlob URL化してCanvasのCORS汚染を防止
+  let customBlobUrl: string | null = null;
+  if (customImage instanceof Blob) {
+    customBlobUrl = URL.createObjectURL(customImage);
+  } else if (typeof customImage === 'string' && customImage.trim()) {
+    if (customImage.startsWith('data:') || customImage.startsWith('blob:')) {
+      customBlobUrl = customImage;
+    } else {
+      try {
+        let fetchUrl = customImage;
+        if (import.meta.env.DEV && customImage.startsWith('https://firebasestorage.googleapis.com')) {
+          fetchUrl = customImage.replace('https://firebasestorage.googleapis.com', '/firebase-storage');
+        }
+        const res = await fetch(fetchUrl);
+        if (res.ok) {
+          const b = await res.blob();
+          customBlobUrl = URL.createObjectURL(b);
+        } else {
+          customBlobUrl = customImage;
+        }
+      } catch (e) {
+        console.warn('Could not fetch custom image as blob, trying direct src:', e);
+        customBlobUrl = customImage;
+      }
+    }
+  }
+
+  // 公式AI画像またはユーザーモッフィー画像の読み込み試行
   let imageLoaded = false;
   const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
   const imageSources = [
+    customBlobUrl,
     `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`,
     archetype.officialImageUrl?.startsWith('/')
       ? `${baseUrl}${archetype.officialImageUrl.slice(1)}`
@@ -109,7 +138,10 @@ export async function generateProfileCardBlob(
   for (const src of imageSources) {
     try {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      // blob: や data: URL には crossOrigin を設定しない（ブラウザエラー防止）
+      if (!src.startsWith('blob:') && !src.startsWith('data:')) {
+        img.crossOrigin = 'anonymous';
+      }
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
         img.onerror = () => reject(new Error(`Failed to load ${src}`));

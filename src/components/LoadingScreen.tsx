@@ -6,6 +6,9 @@ interface LoadingScreenProps {
   archetype?: Archetype;
   isDark?: boolean;
   mode?: 'signin' | 'signup' | 'generating';
+  customTitle?: string;
+  customMessage?: string;
+  badge?: string;
 }
 
 const SIGNIN_MESSAGES = [
@@ -56,6 +59,9 @@ interface BigGeometricStar {
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   isDark = true,
   mode = 'generating',
+  customTitle,
+  customMessage,
+  badge,
 }) => {
   const [msgIndex, setMsgIndex] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -69,19 +75,21 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
       ? GENERATING_MESSAGES
       : SIGNUP_MESSAGES;
 
-  const badgeText =
+  const defaultBadgeText =
     mode === 'signin'
       ? 'AUTHENTICATING'
       : mode === 'generating'
       ? 'HYPER-DIVE // MBTI SYNTHESIS'
       : 'CREATING ACCOUNT';
+  const badgeText = badge || defaultBadgeText;
 
-  const titleText =
+  const defaultTitleText =
     mode === 'signin'
       ? 'サインイン中'
       : mode === 'generating'
       ? '深層宇宙へダイブ中'
       : 'アカウントを作成中';
+  const titleText = customTitle || defaultTitleText;
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -325,7 +333,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
 
         {/* 状態メッセージ */}
         <p className="text-xs sm:text-sm font-medium h-6 text-cyan-200/90 tracking-wide transition-all">
-          {messages[msgIndex]}
+          {customMessage || messages[msgIndex]}
         </p>
 
         {/* プログレスバー ＆ ドット */}
