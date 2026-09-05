@@ -7,6 +7,7 @@ import {
   ExternalLink,
   ChevronDown,
   ShieldCheck,
+  LogOut,
 } from 'lucide-react';
 import type { Archetype, RegistrationResult, ShardPalette } from '../types';
 
@@ -22,6 +23,7 @@ interface ResultScreenProps {
   equippedImageUrl?: string;
   chosenShard: ShardPalette;
   onReset: () => void;
+  onRetakeQuiz?: () => void;
 }
 
 type AnimationStage = 'shard' | 'expanding' | 'crystallized' | 'revealed';
@@ -37,6 +39,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   equippedImageUrl,
   chosenShard,
   onReset,
+  onRetakeQuiz,
 }) => {
   // 演出ステージ: 'shard' (中央小カケラ) -> 'expanding' (拡大＆受肉) -> 'crystallized' (水晶玉完成) -> 'revealed' (詳細テキスト生成)
   const [animStage, setAnimStage] = useState<AnimationStage>('shard');
@@ -564,7 +567,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
                 <ShieldCheck className="w-3.5 h-3.5" />
                 MoffyProfile 登録完了
               </span>
-              {regResult && (
+              {regResult?.photo_url && (
                 <a
                   href={regResult.photo_url}
                   target="_blank"
@@ -575,6 +578,17 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
                 </a>
               )}
             </div>
+            {(regResult?.university || regResult?.grade) && (
+              <div className="mt-1 flex items-center justify-center gap-1.5 text-xs text-gray-400">
+                {regResult.university && <span>{regResult.university}</span>}
+                {regResult.grade && <span className="font-mono text-gray-300 font-medium">({regResult.grade})</span>}
+                {regResult.is_staff && (
+                  <span className="px-2 py-0.5 rounded-full bg-blue-900/60 border border-blue-700/50 text-[10px] text-blue-300 font-semibold">
+                    STAFF
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* カード画像（ボックスなし、自然な影のみ） */}
@@ -617,14 +631,23 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
           </div>
         </div>
 
-        {/* 5. 再診断 */}
-        <div className="pt-10 text-center">
+        {/* 5. 再診断・アカウント切り替えアクション */}
+        <div className="pt-10 flex flex-col sm:flex-row items-center justify-center gap-3 text-xs">
+          {onRetakeQuiz && (
+            <button
+              onClick={onRetakeQuiz}
+              className="inline-flex items-center gap-2 text-gray-300 hover:text-white transition cursor-pointer py-2.5 px-5 rounded-full border border-white/15 hover:border-white/30 bg-white/5"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>このアカウントで性格診断をやり直す</span>
+            </button>
+          )}
           <button
             onClick={onReset}
-            className="inline-flex items-center gap-2 text-xs text-gray-500 hover:text-white transition cursor-pointer py-2 px-4"
+            className="inline-flex items-center gap-2 text-gray-500 hover:text-white transition cursor-pointer py-2.5 px-5 rounded-full border border-white/5 hover:border-white/20"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>最初からやり直す</span>
+            <LogOut className="w-3.5 h-3.5" />
+            <span>別のアカウントでログイン</span>
           </button>
         </div>
       </main>

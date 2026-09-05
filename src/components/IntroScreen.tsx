@@ -11,48 +11,97 @@ import {
   AlertTriangle,
   Loader2,
   XCircle,
+  Eye,
+  EyeOff,
+  X,
 } from 'lucide-react';
 import { OrbitingStars } from './OrbitingStars';
-import { verifyMoffyImage } from '../services/api';
-import type { VerifyMoffyResponse } from '../types';
+import { verifyMoffyImage, fetchAuthConfig } from '../services/api';
+import type { VerifyMoffyResponse, GradeType } from '../types';
+import { GRADE_OPTIONS } from '../types';
 
 export interface OnboardingData {
-
   discordUserId: string;
-  password: string;
+  password?: string;
   hasMoffy: boolean;
   uploadedPhoto: File | Blob | null;
-  authMode: 'signin' | 'signup';
+  authMode: 'signin' | 'signup' | 'google_onboarding';
+  grade: GradeType;
+  university: string;
+  tempToken?: string;
+}
+
+export interface GoogleOnboardingInfo {
+  tempToken: string;
+  email: string;
+  name: string;
 }
 
 interface IntroScreenProps {
   onContinue: (data: OnboardingData) => void;
+  onGoogleSignIn?: (credential: string) => void;
+  onCancelGoogleOnboarding?: () => void;
+  googleOnboardingInfo?: GoogleOnboardingInfo | null;
   initialId?: string;
   onStateChange?: (isSignedIn: boolean) => void;
+  isSubmitting?: boolean;
+}
+
+function getInitialDiscordId(initialId: string): string {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('discord_id') || params.get('user_id') || initialId;
+  }
+  return initialId;
 }
 
 export const IntroScreen: React.FC<IntroScreenProps> = ({
   onContinue,
+  onGoogleSignIn,
+  onCancelGoogleOnboarding,
+  googleOnboardingInfo,
   initialId = '',
   onStateChange,
+  isSubmitting = false,
 }) => {
-  const [isSignedInOrUp, setIsSignedInOrUp] = useState(false);
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
+  const [internalIsSignedInOrUp, setInternalIsSignedInOrUp] = useState(false);
+  const [internalAuthMode, setInternalAuthMode] = useState<'signin' | 'signup'>('signup');
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [isGisReady, setIsGisReady] = useState(false);
+  const submitting = isSubmitting;
+
+  const authMode: 'signin' | 'signup' | 'google_onboarding' = googleOnboardingInfo
+    ? 'google_onboarding'
+    : internalAuthMode;
+  const isSignedInOrUp = !!googleOnboardingInfo || internalIsSignedInOrUp;
+
+  const googleBtnRef = useRef<HTMLDivElement>(null);
 
   // 入力フォームステート
-  const [discordId, setDiscordId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      return params.get('discord_id') || params.get('user_id') || initialId;
-    }
-    return initialId;
-  });
+  // 🌟 批判検証是正 1: Googleの表示名（実名）を Discord ID に自動代入せず、常にクリーンなDiscord ID入力を促す
+  const defaultInitialId = React.useMemo(() => getInitialDiscordId(initialId), [initialId]);
+  const [discordId, setDiscordId] = useState(defaultInitialId);
+
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const [grade, setGrade] = useState<GradeType>('B1');
+  const [university, setUniversity] = useState('');
   const [hasMoffy, setHasMoffy] = useState<boolean | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // 🌟 批判検証是正 4: 一度アンロックされたセクションの保持フラグ（入力中の突然の消失・CLSを防止）
+  const [reachedSections, setReachedSections] = useState<{
+    academic: boolean;
+    moffy: boolean;
+  }>({
+    academic: false,
+    moffy: false,
+  });
+  const [prevAuthMode, setPrevAuthMode] = useState(authMode);
 
   // モッフィーAI画像鑑定ステート (Gemini 3.8 Flash)
   const [isVerifying, setIsVerifying] = useState(false);
@@ -66,48 +115,186 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   const inputSectionRef = useRef<HTMLDivElement>(null);
   const passwordSectionRef = useRef<HTMLDivElement>(null);
   const confirmPasswordSectionRef = useRef<HTMLDivElement>(null);
+  const academicSectionRef = useRef<HTMLDivElement>(null);
   const moffySectionRef = useRef<HTMLDivElement>(null);
   const uploadSectionRef = useRef<HTMLDivElement>(null);
   const continueSectionRef = useRef<HTMLDivElement>(null);
+
+  // Google 初回登録オンボーディング情報が与えられた場合、自動でフォームへ遷移
+  useEffect(() => {
+    if (googleOnboardingInfo) {
+      onStateChange?.(true);
+      const timer = setTimeout(() => {
+        inputSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [googleOnboardingInfo, onStateChange]);
+
+  // Google Identity Services (GIS) の初期化 & ボタンレンダリング
+  // 🌟 批判検証是正 5: タイマーIDを確実に保持し、cleanup 関数で多重ポーリング・リソースリークを防止
+  useEffect(() => {
+    let isMounted = true;
+    let checkGisInterval: ReturnType<typeof setInterval> | null = null;
+    let fallbackTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const setupGoogleGis = async () => {
+      try {
+        const config = await fetchAuthConfig();
+        if (!isMounted) return;
+        const clientId = config.google_client_id;
+
+        checkGisInterval = setInterval(() => {
+          if (window.google?.accounts?.id && googleBtnRef.current) {
+            if (checkGisInterval) {
+              clearInterval(checkGisInterval);
+              checkGisInterval = null;
+            }
+            if (!isMounted) return;
+
+            window.google.accounts.id.initialize({
+              client_id: clientId,
+              callback: (response) => {
+                if (response?.credential && onGoogleSignIn) {
+                  onGoogleSignIn(response.credential);
+                }
+              },
+            });
+
+            // 公式GISボタンのレンダリング
+            window.google.accounts.id.renderButton(googleBtnRef.current, {
+              type: 'standard',
+              theme: 'outline',
+              size: 'large',
+              text: 'continue_with',
+              shape: 'pill',
+              width: 280,
+              locale: 'ja',
+            });
+
+            setIsGisReady(true);
+          }
+        }, 100);
+
+        fallbackTimeout = setTimeout(() => {
+          if (checkGisInterval) {
+            clearInterval(checkGisInterval);
+            checkGisInterval = null;
+          }
+        }, 10000);
+      } catch (err) {
+        console.warn('GIS setup error:', err);
+      }
+    };
+
+    setupGoogleGis();
+
+    return () => {
+      isMounted = false;
+      if (checkGisInterval) clearInterval(checkGisInterval);
+      if (fallbackTimeout) clearTimeout(fallbackTimeout);
+    };
+  }, [onGoogleSignIn]);
+
+  // 🌟 批判検証是正 6: GISスクリプト未ロード時の親切なエラー案内
+  const handleFallbackGoogleClick = () => {
+    if (window.google?.accounts?.id) {
+      window.google.accounts.id.prompt();
+    } else {
+      setError(
+        'Google連携スクリプトの読み込みが制限されているか、オフライン環境です。広告ブロッカーの設定をご確認いただくか、通常のサインイン / サインアップをご利用ください。'
+      );
+    }
+  };
+
+  // --- パスワード強度バリデーション ---
+  // 1. 8文字以上
+  const hasMinLength = password.length >= 8;
+  // 2. 英語大文字 (A-Z) 含有
+  const hasUppercase = /[A-Z]/.test(password);
+  // 3. 数字 (0-9) 含有
+  const hasNumber = /[0-9]/.test(password);
+  // 総合強度スコア (0〜3)
+  const passwordStrengthScore =
+    (hasMinLength ? 1 : 0) + (hasUppercase ? 1 : 0) + (hasNumber ? 1 : 0);
+  const isPasswordStrong = hasMinLength && hasUppercase && hasNumber;
 
   // --- 入力完了判定 ---
   // 1. UserID完了（3文字以上の英数字）
   const isIdCompleted = discordId.trim().length >= 3;
 
-  // 2. パスワード完了（8文字以上）
-  const isPasswordCompleted = password.length >= 8;
+  // 2. パスワード完了（サインアップ時は強度3条件すべて必須、サインイン時は8文字以上、google_onboarding時は不要）
+  const isPasswordCompleted =
+    authMode === 'google_onboarding'
+      ? true
+      : authMode === 'signup'
+      ? isPasswordStrong
+      : password.length >= 8;
 
-  // 3. 確認用パスワード完了（サインアップ時は一致、サインイン時は不要）
+  // 3. 確認用パスワード完了（サインアップ時は一致、サインイン・google_onboarding時は不要）
   const isConfirmPasswordCompleted =
     authMode === 'signup'
       ? confirmPassword.length >= 8 && confirmPassword === password
       : true;
 
   // パスワード認証フェーズ全体の完了
-  const isAuthCompleted = isIdCompleted && isPasswordCompleted && isConfirmPasswordCompleted;
+  const isAuthCompleted =
+    authMode === 'google_onboarding'
+      ? isIdCompleted
+      : isIdCompleted && isPasswordCompleted && isConfirmPasswordCompleted;
 
-  // 4. モッフィー所持ステップ完了判定（サインアップ時のみ）
-  // モッフィー所持の場合は、画像がアップロードされ、AI鑑定でモッフィーと判定されるか、フォールバック承認されている必要がある
+  // 4. 大学名・学年完了判定（サインアップまたはgoogle_onboarding時は1文字以上入力必須）
+  const isUniversityCompleted =
+    authMode === 'signin' ? true : university.trim().length >= 1;
+
+  const isProfileCompleted =
+    authMode === 'signin' ? isAuthCompleted : isAuthCompleted && isUniversityCompleted;
+
+  // 🌟 批判検証是正 4: 一度アンロックされたセクションの保持（入力中の突然の消失・CLSを防止）
+  // React公式推奨パターン（Adjusting state during rendering）で余計なEffectやカスケードレンダリングを完全排除
+  if (authMode !== prevAuthMode) {
+    setPrevAuthMode(authMode);
+    setReachedSections({ academic: false, moffy: false });
+  }
+
+  const canUnlockAcademic =
+    (authMode === 'signup' && isConfirmPasswordCompleted) ||
+    (authMode === 'google_onboarding' && isIdCompleted);
+  if (!reachedSections.academic && canUnlockAcademic) {
+    setReachedSections((prev) => ({ ...prev, academic: true }));
+  }
+
+  const canUnlockMoffy =
+    (authMode === 'signup' || authMode === 'google_onboarding') && isProfileCompleted;
+  if (!reachedSections.moffy && canUnlockMoffy) {
+    setReachedSections((prev) => ({ ...prev, moffy: true }));
+  }
+
+  // 5. モッフィー所持ステップ完了判定
   const isMoffyStepCompleted =
-    hasMoffy === false ||
-    (hasMoffy === true &&
-      uploadedFile !== null &&
-      !isVerifying &&
-      (verifyResult?.is_moffy === true || verifyWarning !== null));
+    authMode === 'signin'
+      ? true
+      : hasMoffy === false ||
+        (hasMoffy === true &&
+          uploadedFile !== null &&
+          !isVerifying &&
+          (verifyResult?.is_moffy === true || verifyWarning !== null));
 
   // 続行可能かどうかの判定
   const isContinueAvailable =
     authMode === 'signin'
       ? isIdCompleted && isPasswordCompleted
-      : isAuthCompleted && isMoffyStepCompleted;
-
+      : isProfileCompleted && isMoffyStepCompleted;
 
   // 🌟 現在フォーカスすべきターゲット（星々が周回する対象）
-  const getActiveTarget = (): 'id' | 'password' | 'confirmPassword' | 'moffy' | 'upload' | 'continue' => {
+  const getActiveTarget = (): 'id' | 'password' | 'confirmPassword' | 'academic' | 'moffy' | 'upload' | 'continue' => {
     if (!isIdCompleted) return 'id';
-    if (!isPasswordCompleted) return 'password';
-    if (authMode === 'signup') {
-      if (!isConfirmPasswordCompleted) return 'confirmPassword';
+    if (authMode !== 'google_onboarding') {
+      if (!isPasswordCompleted) return 'password';
+      if (authMode === 'signup' && !isConfirmPasswordCompleted) return 'confirmPassword';
+    }
+    if (authMode !== 'signin') {
+      if (!isUniversityCompleted) return 'academic';
       if (hasMoffy === null) return 'moffy';
       if (
         hasMoffy === true &&
@@ -123,11 +310,11 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   // ヒーローのサインイン / サインアップ押下時
   const handleSelectAuthMode = (mode: 'signin' | 'signup') => {
     if (isTransitioning) return;
-    setAuthMode(mode);
+    setInternalAuthMode(mode);
     setIsTransitioning(true);
 
     setTimeout(() => {
-      setIsSignedInOrUp(true);
+      setInternalIsSignedInOrUp(true);
       onStateChange?.(true);
 
       setTimeout(() => {
@@ -154,10 +341,16 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   }, [authMode, isPasswordCompleted, isConfirmPasswordCompleted]);
 
   useEffect(() => {
-    if (authMode === 'signup' && isAuthCompleted && hasMoffy === null) {
+    if (authMode === 'signup' && isConfirmPasswordCompleted && !isUniversityCompleted) {
+      academicSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [authMode, isConfirmPasswordCompleted, isUniversityCompleted]);
+
+  useEffect(() => {
+    if (authMode === 'signup' && isProfileCompleted && hasMoffy === null) {
       moffySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-  }, [authMode, isAuthCompleted, hasMoffy]);
+  }, [authMode, isProfileCompleted, hasMoffy]);
 
   useEffect(() => {
     if (authMode === 'signup') {
@@ -211,17 +404,68 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   // 続行するボタン押下
   const handleContinueSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
+
     if (!isIdCompleted) {
       setError('Discord User IDを入力してください');
       return;
     }
-    if (!isPasswordCompleted) {
-      setError('パスワードは8文字以上で入力してください');
+
+    const cleanUniversity = university.replace(/[\r\n\t]/g, ' ').trim().slice(0, 50);
+
+    if (authMode === 'google_onboarding') {
+      if (!cleanUniversity) {
+        setError('大学名または所属機関を入力してください');
+        return;
+      }
+      if (hasMoffy === null) {
+        setError('モッフィーを所持しているか選択してください');
+        return;
+      }
+      if (hasMoffy === true) {
+        if (!uploadedFile) {
+          setError('モッフィー画像をアップロードしてください');
+          return;
+        }
+        if (isVerifying) {
+          setError('AIがモッフィー画像を鑑定中です。完了まで少しお待ちください');
+          return;
+        }
+        if (verifyResult && !verifyResult.is_moffy && !verifyWarning) {
+          setError('モッフィーの公式特徴（鼻なし・四芒星瞳など）を満たした画像をアップロードしてください');
+          return;
+        }
+      }
+
+      setError(null);
+      onContinue({
+        discordUserId: discordId.trim(),
+        hasMoffy: !!hasMoffy,
+        uploadedPhoto: uploadedFile,
+        authMode: 'google_onboarding',
+        grade,
+        university: cleanUniversity,
+        tempToken: googleOnboardingInfo?.tempToken,
+      });
       return;
     }
-    if (authMode === 'signup') {
+
+    if (authMode === 'signin') {
+      if (!isPasswordCompleted) {
+        setError('パスワードを入力してください');
+        return;
+      }
+    } else if (authMode === 'signup') {
+      if (!isPasswordStrong) {
+        setError('パスワードは大文字・数字を含む8文字以上で設定してください');
+        return;
+      }
       if (!isConfirmPasswordCompleted) {
         setError('確認用パスワードが一致していません');
+        return;
+      }
+      if (!cleanUniversity) {
+        setError('大学名または所属機関を入力してください');
         return;
       }
       if (hasMoffy === null) {
@@ -252,6 +496,8 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
       hasMoffy: !!hasMoffy,
       uploadedPhoto: uploadedFile,
       authMode,
+      grade,
+      university: cleanUniversity,
     });
   };
 
@@ -291,8 +537,53 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
           </div>
         </div>
 
-        {/* サインイン ＆ サインアップ 2つのボタン */}
+        {/* 認証アクションエリア */}
         <div className="w-full flex flex-col items-center gap-3 mt-4">
+          {/* ============================================================ */}
+          {/* Googleアカウントで連携 (推奨) */}
+          {/* ============================================================ */}
+          <div className="w-full flex flex-col items-center">
+            {/* 推奨バッジ */}
+            <div className="mb-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/40 text-[11px] font-bold text-blue-300 shadow-sm flex items-center gap-1.5 animate-pulse">
+              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+              <span>Googleアカウントで連携 (推奨)</span>
+            </div>
+
+            <div className="relative w-full flex justify-center items-center">
+              {/* GIS公式ボタン描画コンテナ */}
+              <div
+                ref={googleBtnRef}
+                className="min-h-[44px] flex items-center justify-center transition-opacity duration-300"
+              />
+
+              {/* GISスクリプト読み込み中または未描画時のフォールバックボタン */}
+              {!isGisReady && (
+                <button
+                  type="button"
+                  onClick={handleFallbackGoogleClick}
+                  disabled={submitting}
+                  className="w-full max-w-[280px] h-11 px-4 rounded-full bg-white hover:bg-gray-100 active:scale-[0.98] text-gray-800 font-semibold text-sm transition-all duration-300 flex items-center justify-center gap-3 shadow-md hover:shadow-lg cursor-pointer"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                  </svg>
+                  <span>Googleでログイン・連携</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 区切り線（または） */}
+          <div className="w-full flex items-center gap-3 my-2">
+            <div className="flex-1 h-px bg-gray-700/80" />
+            <span className="text-[11px] font-medium text-gray-400">または</span>
+            <div className="flex-1 h-px bg-gray-700/80" />
+          </div>
+
+          {/* サインイン ＆ サインアップ 2つのボタン */}
           <div className="w-full grid grid-cols-2 gap-3">
             {/* サインインボタン */}
             <button
@@ -349,18 +640,36 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
         >
           {/* フォームヘッダー */}
           <div className="w-full text-left mb-8 animate-fade-in">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-900/50 text-[11px] font-semibold text-blue-300 mb-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-ping" />
-              <span>
-                {authMode === 'signup' ? 'NEW AMBASSADOR SIGN-UP' : 'AMBASSADOR SIGN-IN'}
-              </span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-900/50 text-[11px] font-semibold text-blue-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-ping" />
+                <span>
+                  {authMode === 'google_onboarding'
+                    ? 'GOOGLE ACCOUNT LINKED'
+                    : authMode === 'signup'
+                    ? 'NEW AMBASSADOR'
+                    : 'AMBASSADOR SIGN-IN'}
+                </span>
+              </div>
+              {authMode === 'google_onboarding' && onCancelGoogleOnboarding && (
+                <button
+                  type="button"
+                  onClick={onCancelGoogleOnboarding}
+                  className="text-xs text-gray-400 hover:text-white px-2.5 py-1 rounded-full bg-gray-800 border border-gray-700 hover:border-gray-500 transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Google連携を解除</span>
+                </button>
+              )}
             </div>
             <h2 className="text-xl sm:text-2xl font-bold text-white">
-              {authMode === 'signup' ? 'アンバサダー登録' : 'チェックイン認証'}
+              {authMode === 'signin' ? 'チェックイン認証' : 'あなたについて聞かせて？'}
             </h2>
             <p className="text-xs text-gray-400 mt-1">
-              {authMode === 'signup' 
-                ? '入力が完了すると自動的に次の項目が開きます' 
+              {authMode === 'google_onboarding'
+                ? `Google連携中: ${googleOnboardingInfo?.email || ''} (パスワード入力は不要です)`
+                : authMode === 'signup'
+                ? '入力が完了すると自動的に次の項目が開きます'
                 : '登録済みのDiscord IDとパスワードでサインインします'}
             </p>
           </div>
@@ -428,13 +737,13 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
             </div>
 
             {/* ------------------------------------------------------------ */}
-            {/* 2. パスワード入力（ID入力完了で自動フェードイン） */}
+            {/* 2. パスワード入力（Googleオンボーディング時はスキップ） */}
             {/* ------------------------------------------------------------ */}
-            {isIdCompleted && (
+            {authMode !== 'google_onboarding' && isIdCompleted && (
               <div ref={passwordSectionRef} className="animate-fade-in">
                 <div className="flex items-center justify-between mb-2">
                   <label htmlFor="pass" className="text-xs font-bold text-gray-300">
-                    2. パスワード (8文字以上)
+                    2. パスワード {authMode === 'signup' ? '(8文字以上・大文字・数字)' : '(8文字以上)'}
                   </label>
                   {isPasswordCompleted && (
                     <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1 animate-fade-in">
@@ -450,16 +759,99 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
                   <input
                     id="pass"
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => {
                       setPassword(e.target.value);
                       if (error) setError(null);
                     }}
-                    placeholder="8文字以上のパスワード"
-                    className="relative z-10 w-full h-14 px-5 rounded-full border border-gray-600 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium focus:bg-gray-900 focus:border-google-blue focus:ring-4 focus:ring-google-blue/10 focus:outline-none transition shadow-sm"
+                    placeholder={authMode === 'signup' ? "8文字以上（英大文字・数字を含む）" : "8文字以上のパスワード"}
+                    className="relative z-10 w-full h-14 pl-5 pr-12 rounded-full border border-gray-600 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium focus:bg-gray-900 focus:border-google-blue focus:ring-4 focus:ring-google-blue/10 focus:outline-none transition shadow-sm"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 z-20 text-gray-400 hover:text-gray-200 p-1.5 cursor-pointer transition-colors"
+                    title={showPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
+
+                {/* サインアップ時のパスワード強度インジケーター */}
+                {authMode === 'signup' && (
+                  <div className="mt-2.5 space-y-2 animate-fade-in">
+                    {/* 強度バー */}
+                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden flex gap-1">
+                      <div
+                        className={`h-full flex-1 rounded-full transition-all duration-300 ${
+                          passwordStrengthScore >= 1
+                            ? passwordStrengthScore === 1
+                              ? 'bg-red-500'
+                              : passwordStrengthScore === 2
+                              ? 'bg-amber-400'
+                              : 'bg-emerald-500'
+                            : 'bg-transparent'
+                        }`}
+                      />
+                      <div
+                        className={`h-full flex-1 rounded-full transition-all duration-300 ${
+                          passwordStrengthScore >= 2
+                            ? passwordStrengthScore === 2
+                              ? 'bg-amber-400'
+                              : 'bg-emerald-500'
+                            : 'bg-transparent'
+                        }`}
+                      />
+                      <div
+                        className={`h-full flex-1 rounded-full transition-all duration-300 ${
+                          passwordStrengthScore >= 3 ? 'bg-emerald-500' : 'bg-transparent'
+                        }`}
+                      />
+                    </div>
+
+                    {/* 要件チェックマーク */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400 pt-0.5">
+                      <span
+                        className={`inline-flex items-center gap-1 transition-colors ${
+                          hasMinLength ? 'text-emerald-400 font-medium' : 'text-gray-400'
+                        }`}
+                      >
+                        {hasMinLength ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-gray-500 inline-block" />
+                        )}
+                        8文字以上
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1 transition-colors ${
+                          hasUppercase ? 'text-emerald-400 font-medium' : 'text-gray-400'
+                        }`}
+                      >
+                        {hasUppercase ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-gray-500 inline-block" />
+                        )}
+                        英大文字 (A-Z)
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1 transition-colors ${
+                          hasNumber ? 'text-emerald-400 font-medium' : 'text-gray-400'
+                        }`}
+                      >
+                        {hasNumber ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-gray-500 inline-block" />
+                        )}
+                        数字 (0-9)
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -486,26 +878,105 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
                   <input
                     id="confirmPass"
-                    type="password"
+                    type={showConfirmPassword ? 'text' : 'password'}
                     value={confirmPassword}
                     onChange={(e) => {
                       setConfirmPassword(e.target.value);
                       if (error) setError(null);
                     }}
                     placeholder="もう一度パスワードを入力"
-                    className="relative z-10 w-full h-14 px-5 rounded-full border border-gray-600 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium focus:bg-gray-900 focus:border-google-blue focus:ring-4 focus:ring-google-blue/10 focus:outline-none transition shadow-sm"
+                    className="relative z-10 w-full h-14 pl-5 pr-12 rounded-full border border-gray-600 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium focus:bg-gray-900 focus:border-google-blue focus:ring-4 focus:ring-google-blue/10 focus:outline-none transition shadow-sm"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((prev) => !prev)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 z-20 text-gray-400 hover:text-gray-200 p-1.5 cursor-pointer transition-colors"
+                    title={showConfirmPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                    tabIndex={-1}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
               </div>
             )}
 
             {/* ------------------------------------------------------------ */}
-            {/* 4. 「モッフィーをすでに持っていますか？」（サインアップ時のみ自動フェードイン） */}
+            {/* 4. 大学名・学年入力（サインアップまたはGoogleオンボーディング時） */}
             {/* ------------------------------------------------------------ */}
-            {authMode === 'signup' && isAuthCompleted && (
+            {((authMode === 'signup' && (isAuthCompleted || reachedSections.academic)) ||
+              (authMode === 'google_onboarding' && isIdCompleted)) && (
+              <div ref={academicSectionRef} className="animate-fade-in pt-4 border-t border-gray-700 space-y-4">
+                {/* 大学名 */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label htmlFor="universityInput" className="text-xs font-bold text-gray-300">
+                      {authMode === 'google_onboarding' ? '2. 大学名 / 所属機関' : '4. 大学名 / 所属機関'}
+                    </label>
+                    {isUniversityCompleted && (
+                      <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1 animate-fade-in">
+                        <Check className="w-3.5 h-3.5" />
+                        OK
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="relative w-full">
+                    {/* 🌟 所属情報入力中は星がここを周回 */}
+                    {activeTarget === 'academic' && <OrbitingStars count={5} isDark={true} />}
+
+                    <input
+                      id="universityInput"
+                      type="text"
+                      maxLength={50}
+                      value={university}
+                      onChange={(e) => {
+                        setUniversity(e.target.value);
+                        if (error) setError(null);
+                      }}
+                      placeholder="例: 東京大学 / 日本大学"
+                      className="relative z-10 w-full h-14 px-5 rounded-full border border-gray-600 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium focus:bg-gray-900 focus:border-google-blue focus:ring-4 focus:ring-google-blue/10 focus:outline-none transition shadow-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* 学年選択 */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label htmlFor="gradeSelect" className="text-xs font-bold text-gray-300">
+                      学年
+                    </label>
+                    <span className="text-[11px] font-mono text-gray-400">{grade}</span>
+                  </div>
+
+                  <div className="relative w-full">
+                    <select
+                      id="gradeSelect"
+                      value={grade}
+                      onChange={(e) => setGrade(e.target.value as GradeType)}
+                      className="relative z-10 w-full h-14 px-5 pr-10 rounded-full border border-gray-600 bg-gray-900/80 text-white text-sm font-medium focus:bg-gray-900 focus:border-google-blue focus:ring-4 focus:ring-google-blue/10 focus:outline-none transition shadow-sm appearance-none cursor-pointer"
+                    >
+                      {GRADE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value} className="bg-gray-900 text-white">
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 z-20">
+                      <ChevronDown className="w-5 h-5" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ------------------------------------------------------------ */}
+            {/* 5. 「モッフィーをすでに持っていますか？」（サインアップまたはGoogleオンボーディング時） */}
+            {/* ------------------------------------------------------------ */}
+            {(authMode === 'signup' || authMode === 'google_onboarding') &&
+              (isProfileCompleted || reachedSections.moffy) && (
               <div ref={moffySectionRef} className="animate-fade-in pt-4 border-t border-gray-700">
                 <label className="text-xs font-bold text-gray-300 block mb-3 text-center">
-                  モッフィーをすでに持っていますか？
+                  {authMode === 'google_onboarding' ? '3. モッフィーをすでに持っていますか？' : '5. モッフィーをすでに持っていますか？'}
                 </label>
 
                 <div className="relative w-full">
@@ -531,24 +1002,11 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                       type="button"
                       onClick={() => {
                         setHasMoffy(false);
+                        setUploadedFile(null);
                         setPreviewUrl(null);
                         setVerifyResult(null);
                         setVerifyWarning(null);
                         setError(null);
-                        
-                        // Generate blank white image for API requirement
-
-                        const canvas = document.createElement('canvas');
-                        canvas.width = 800;
-                        canvas.height = 800;
-                        const ctx = canvas.getContext('2d')!;
-                        ctx.fillStyle = '#ffffff';
-                        ctx.fillRect(0, 0, 800, 800);
-                        canvas.toBlob((blob) => {
-                          if (blob) {
-                            setUploadedFile(blob);
-                          }
-                        }, 'image/png');
                       }}
                       className={`h-13 rounded-2xl font-medium text-sm transition-all duration-200 border cursor-pointer ${
                         hasMoffy === false
@@ -564,12 +1022,12 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
             )}
 
             {/* ------------------------------------------------------------ */}
-            {/* 5. 画像アップロードフォーム（サインアップで「はい」の場合に自動フェードイン） */}
+            {/* 6. 画像アップロードフォーム（サインアップまたはGoogleオンボーディングで「はい」の場合） */}
             {/* ------------------------------------------------------------ */}
-            {authMode === 'signup' && hasMoffy === true && (
+            {(authMode === 'signup' || authMode === 'google_onboarding') && hasMoffy === true && (
               <div ref={uploadSectionRef} className="animate-fade-in pt-2">
                 <label className="text-xs font-bold text-gray-300 block mb-2">
-                  モッフィー画像をアップロード
+                  {authMode === 'google_onboarding' ? '4. モッフィー画像をアップロード' : '6. モッフィー画像をアップロード'}
                 </label>
 
                 <div className="relative w-full">
@@ -704,17 +1162,8 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                                 setUploadedFile(null);
                                 setPreviewUrl(null);
                                 setVerifyResult(null);
+                                setVerifyWarning(null);
                                 setError(null);
-                                // 白画像フォールバック生成
-                                const canvas = document.createElement('canvas');
-                                canvas.width = 800;
-                                canvas.height = 800;
-                                const ctx = canvas.getContext('2d')!;
-                                ctx.fillStyle = '#ffffff';
-                                ctx.fillRect(0, 0, 800, 800);
-                                canvas.toBlob((blob) => {
-                                  if (blob) setUploadedFile(blob);
-                                }, 'image/png');
                               }}
                               className="text-[11px] text-red-300 underline hover:text-white cursor-pointer"
                             >
@@ -773,10 +1222,26 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
                   <button
                     type="submit"
-                    className="relative z-10 w-full h-14 rounded-full bg-google-blue hover:bg-google-blue-hover active:scale-[0.99] text-white font-semibold text-base shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={submitting}
+                    className="relative z-10 w-full h-14 rounded-full bg-google-blue hover:bg-google-blue-hover active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:pointer-events-none text-white font-semibold text-base shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <span>{authMode === 'signup' ? '続行する' : 'サインインする'}</span>
-                    <ArrowRight className="w-4 h-4" />
+                    {submitting ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>処理中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>
+                          {authMode === 'signin'
+                            ? 'サインインする'
+                            : authMode === 'google_onboarding'
+                            ? '登録を完了してはじめる'
+                            : '続行する'}
+                        </span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

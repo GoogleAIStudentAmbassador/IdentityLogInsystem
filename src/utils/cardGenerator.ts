@@ -7,7 +7,7 @@ import type { Archetype } from '../types';
  *
  * ID表示・基本ステータスを全廃し、キャラクタービジュアルを中心とした高品質なカードを生成します。
  */
-export async function generateProfileCardBlob(
+async function renderProfileCardInternal(
   archetype: Archetype,
   _discordUserId?: string,
   customImage?: string | Blob | null
@@ -105,21 +105,39 @@ export async function generateProfileCardBlob(
     if (customImage.startsWith('data:') || customImage.startsWith('blob:')) {
       customBlobUrl = customImage;
     } else {
+      let loadedBlob: Blob | null = null;
+      // 1. ローカルプロキシまたは直接フェッチ試行
       try {
         let fetchUrl = customImage;
         if (import.meta.env.DEV && customImage.startsWith('https://firebasestorage.googleapis.com')) {
           fetchUrl = customImage.replace('https://firebasestorage.googleapis.com', '/firebase-storage');
         }
-        const res = await fetch(fetchUrl);
+        const res = await fetch(fetchUrl, { mode: 'cors' });
         if (res.ok) {
-          const b = await res.blob();
-          customBlobUrl = URL.createObjectURL(b);
-        } else {
-          customBlobUrl = customImage;
+          loadedBlob = await res.blob();
         }
-      } catch (e) {
-        console.warn('Could not fetch custom image as blob, trying direct src:', e);
-        customBlobUrl = customImage;
+      } catch (err) {
+        console.warn('Direct image fetch failed, trying CORS proxy:', err);
+      }
+
+      // 2. 失敗時は CORS プロキシ経由でフェッチ（Firebase Storage の CORS 未対応を回避）
+      if (!loadedBlob) {
+        try {
+          const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(customImage)}`;
+          const res = await fetch(proxyUrl);
+          if (res.ok) {
+            loadedBlob = await res.blob();
+          }
+        } catch (proxyErr) {
+          console.warn('CORS proxy image fetch failed:', proxyErr);
+        }
+      }
+
+      if (loadedBlob) {
+        customBlobUrl = URL.createObjectURL(loadedBlob);
+      } else {
+        // 最後の手段として、CORS プロキシ URL をそのまま指定（CORS ヘッダー付きで読み込まれる）
+        customBlobUrl = `https://images.weserv.nl/?url=${encodeURIComponent(customImage)}`;
       }
     }
   }
@@ -335,13 +353,42 @@ export async function generateProfileCardBlob(
     console.error('Failed to draw footer logo:', err);
   }
 
-  const dataUrl = canvas.toDataURL('image/png');
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((b) => {
-      if (b) resolve(b);
-      else reject(new Error('Canvas toBlob failed'));
-    }, 'image/png');
-  });
+  let dataUrl = '';
+  let blob: Blob;
+  try {
+    dataUrl = canvas.toDataURL('image/png');
+    blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((b) => {
+        if (b) resolve(b);
+        else reject(new Error('Canvas toBlob failed'));
+      }, 'image/png');
+    });
+  } catch (canvasErr) {
+    throw new Error(`Canvas tainted or export failed: ${canvasErr instanceof Error ? canvasErr.message : canvasErr}`);
+  }
 
   return { blob, dataUrl };
+}
+
+/**
+ * 安全なパートナーカード生成関数
+ * 外部画像（Firebase Storage等）によるCORS汚染やSecurityErrorが発生した場合でも、
+ * 同一オリジンの公式マスコット画像に自動フォールバックして確実にカードを返却します。
+ */
+export async function generateProfileCardBlob(
+  archetype: Archetype,
+  discordUserId?: string,
+  customImage?: string | Blob | null
+): Promise<{ blob: Blob; dataUrl: string }> {
+  try {
+    return await renderProfileCardInternal(archetype, discordUserId, customImage);
+  } catch (err) {
+    console.warn('Card generation failed with custom image (possible CORS/Tainted Canvas). Falling back to official archetype asset:', err);
+    try {
+      return await renderProfileCardInternal(archetype, discordUserId, null);
+    } catch (fallbackErr) {
+      console.error('Fatal: even official fallback card generation failed:', fallbackErr);
+      throw fallbackErr;
+    }
+  }
 }

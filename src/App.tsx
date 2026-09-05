@@ -1,12 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import type { GameStage, Archetype, RegistrationResult, MbtiType, CreateMoffyParams, ShardPalette } from './types';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import type {
+  GameStage,
+  Archetype,
+  RegistrationResult,
+  MbtiType,
+  CreateMoffyParams,
+  ShardPalette,
+  UserMoffySession,
+} from './types';
 import { MBTI_ARCHETYPES, PERSONALITY_QUESTIONS, ARCHETYPE_EQUIP_INSTRUCTIONS } from './data/personalityQuestions';
 import { SHARD_PALETTES } from './types';
 import { generateProfileCardBlob } from './utils/cardGenerator';
 import {
   checkApiHealth,
   registerUserProfile,
-  fetchUserProfile,
+  loginUser,
+  loginWithGoogle,
+  registerGoogleUser,
+  extractMbtiFromUrl,
+  setStoredAuthToken,
   createMoffy,
   editMoffyImage,
   updateArrangedPhoto,
@@ -16,12 +28,33 @@ import {
 } from './services/api';
 import { Header } from './components/Header';
 import { IntroScreen } from './components/IntroScreen';
-import type { OnboardingData } from './components/IntroScreen';
+import type { OnboardingData, GoogleOnboardingInfo } from './components/IntroScreen';
 import { QuizScreen } from './components/QuizScreen';
 import { MoffyCustomizeScreen } from './components/MoffyCustomizeScreen';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { AlertTriangle } from 'lucide-react';
+
+const USER_STORAGE_PREFIX = 'moffy_user_session_';
+
+function saveUserSession(session: UserMoffySession): void {
+  try {
+    localStorage.setItem(`${USER_STORAGE_PREFIX}${session.discordUserId}`, JSON.stringify(session));
+  } catch (e) {
+    console.warn('Could not save user session to localStorage:', e);
+  }
+}
+
+function loadUserSession(discordUserId: string): UserMoffySession | null {
+  try {
+    const raw = localStorage.getItem(`${USER_STORAGE_PREFIX}${discordUserId}`);
+    if (!raw) return null;
+    return JSON.parse(raw) as UserMoffySession;
+  } catch (e) {
+    console.warn('Could not load user session from localStorage:', e);
+    return null;
+  }
+}
 
 export const App: React.FC = () => {
   const [stage, setStage] = useState<GameStage>('intro');
@@ -31,14 +64,15 @@ export const App: React.FC = () => {
   const [cardBlob, setCardBlob] = useState<Blob | null>(null);
   const [regResult, setRegResult] = useState<RegistrationResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [googleOnboardingInfo, setGoogleOnboardingInfo] = useState<GoogleOnboardingInfo | null>(null);
   const [apiStatus, setApiStatus] = useState<{
     authenticated: boolean;
     name: string;
     canCreate: boolean;
   } | null>(null);
 
-  // モッフィー未所持フラグ（IntroScreenで「いいえ」を選択した場合に false）
-  const [hasMoffy, setHasMoffy] = useState<boolean>(true);
+  // モッフィー未所持フラグ（未所持をデフォルトにし、前回の残留を防ぐ）
+  const [hasMoffy, setHasMoffy] = useState<boolean>(false);
   const [uploadedPhoto, setUploadedPhoto] = useState<File | Blob | null>(null);
 
   // ノーマル（ベース）モッフィー画像URL & アクセサリー装備モッフィー画像URL
@@ -62,6 +96,13 @@ export const App: React.FC = () => {
   const [isDarkTheme, setIsDarkTheme] = useState(true);
   // ローディング画面のメッセージモード ('signin' | 'signup' | 'generating')
   const [loadingMode, setLoadingMode] = useState<'signin' | 'signup' | 'generating'>('signup');
+  // 認証・登録処理中の連打防止フラグ
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(isSubmitting);
+  useEffect(() => {
+    isSubmittingRef.current = isSubmitting;
+  }, [isSubmitting]);
+
   // 診断された4次元生スコア
   const [traitScores, setTraitScores] = useState<Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> | null>(null);
 
@@ -78,13 +119,185 @@ export const App: React.FC = () => {
   const isDarkOpening = isDarkTheme;
 
   // ======================================================================
-  // IntroScreen から「続行する / サインインする」押下時
+  // Google連携のキャンセル（通常サインアップ/サインインへ復帰）
+  // ======================================================================
+  const handleCancelGoogleOnboarding = useCallback(() => {
+    setGoogleOnboardingInfo(null);
+    setErrorMsg(null);
+  }, []);
+
+  // ======================================================================
+  // Google連携ログイン押下時（既存ユーザーの即ログイン or 初回オンボーディング分岐）
+  // 🌟 批判検証是正 5: useCallback 化して無駄な再生成および IntroScreen GIS useEffect の暴走・リークを防止
+  // ======================================================================
+  const handleGoogleSignIn = useCallback(async (credential: string) => {
+    if (isSubmittingRef.current) return;
+    setIsSubmitting(true);
+    setErrorMsg(null);
+
+    try {
+      const res = await loginWithGoogle(credential);
+
+      if (res.needs_registration) {
+        // 初回連携：パスワード不要のオンボーディング案内へ
+        setGoogleOnboardingInfo({
+          tempToken: res.temp_token || '',
+          email: res.google_email || '',
+          name: res.google_name || '',
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 既存ユーザー：即座にログイン完了！
+      if (!res.user) {
+        throw new Error('ユーザー情報の取得に失敗しました');
+      }
+
+      const userData = res.user;
+      const resolvedUserId = userData.discord_user_id;
+      setDiscordUserId(resolvedUserId);
+
+      // アカウント間残留防止のクリア
+      setSelectedArchetype(MBTI_ARCHETYPES.INTJ);
+      setTraitScores(null);
+      setCustomMoffyImageUrl(null);
+      setNormalMoffyImageUrl(null);
+      setEquippedMoffyImageUrl(null);
+      setCardDataUrl('');
+      setCardBlob(null);
+
+      const userResult: RegistrationResult = {
+        discord_user_id: userData.discord_user_id,
+        photo_url: userData.photo_url || null,
+        default_photo_url: userData.default_photo_url || null,
+        arranged_photo_url: userData.arranged_photo_url || null,
+        grade: userData.grade || null,
+        university: userData.university || null,
+        is_staff: !!userData.is_staff,
+        created_at: userData.created_at,
+        updated_at: userData.updated_at,
+        google_id: userData.google_id || null,
+      };
+
+      const extractedMbti =
+        extractMbtiFromUrl(userResult.arranged_photo_url) ||
+        extractMbtiFromUrl(userResult.default_photo_url) ||
+        extractMbtiFromUrl(userResult.photo_url);
+      if (extractedMbti) {
+        userResult.mbti = extractedMbti;
+      }
+
+      setRegResult(userResult);
+
+      const localSession = loadUserSession(resolvedUserId);
+      if (!userResult.grade && localSession?.grade) userResult.grade = localSession.grade;
+      if (!userResult.university && localSession?.university) userResult.university = localSession.university;
+
+      const arrangedPhoto = userResult.arranged_photo_url || localSession?.arrangedPhotoUrl || null;
+      const defaultPhoto = userResult.default_photo_url || userResult.photo_url || localSession?.defaultPhotoUrl || arrangedPhoto;
+      const existingPhoto = arrangedPhoto || defaultPhoto;
+
+      if (existingPhoto) {
+        setCustomMoffyImageUrl(existingPhoto);
+        setNormalMoffyImageUrl(defaultPhoto);
+        setEquippedMoffyImageUrl(arrangedPhoto || existingPhoto);
+      }
+
+      const hasArrangedMoffy = !!(arrangedPhoto && arrangedPhoto.trim());
+      setHasMoffy(hasArrangedMoffy);
+
+      if (hasArrangedMoffy) {
+        const resolvedMbti = (localSession?.mbti || userResult.mbti || 'INTJ') as MbtiType;
+        const archetypeToUse = MBTI_ARCHETYPES[resolvedMbti] || MBTI_ARCHETYPES.INTJ;
+        setSelectedArchetype(archetypeToUse);
+
+        if (localSession?.traitScores) {
+          setTraitScores(localSession.traitScores);
+        }
+
+        if (localSession?.cardDataUrl) {
+          setCardDataUrl(localSession.cardDataUrl);
+          const restoredBlob = base64ToBlob(localSession.cardDataUrl);
+          setCardBlob(restoredBlob);
+        } else {
+          const { blob, dataUrl } = await generateProfileCardBlob(
+            archetypeToUse,
+            resolvedUserId,
+            arrangedPhoto
+          );
+          setCardBlob(blob);
+          setCardDataUrl(dataUrl);
+
+          saveUserSession({
+            discordUserId: resolvedUserId,
+            mbti: archetypeToUse.mbtiCode,
+            cardDataUrl: dataUrl,
+            arrangedPhotoUrl: arrangedPhoto,
+            defaultPhotoUrl: defaultPhoto,
+            grade: userResult.grade,
+            university: userResult.university,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        setLoadingMode('signin');
+        setPipelineTitle('ログイン成功');
+        setPipelineMessage('モッフィーパートナーカードを展開中...');
+        setStage('generating');
+        setIsBursting(true);
+
+        setTimeout(() => {
+          setIsBursting(false);
+          setIsDarkTheme(true);
+          window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+          setStage('result');
+        }, 1500);
+        return;
+      }
+
+      setLoadingMode('signin');
+      setPipelineTitle('ログイン成功');
+      setPipelineMessage('性格診断ステージを準備しています...');
+      setStage('generating');
+      setIsBursting(true);
+
+      setTimeout(() => {
+        setIsBursting(false);
+        setIsDarkTheme(false);
+        setStage('quiz');
+      }, 1500);
+    } catch (err: unknown) {
+      console.error('Google login error:', err);
+      const message = err instanceof Error ? err.message : 'Googleログインに失敗しました';
+      setErrorMsg(message);
+      setStage('intro');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, []);
+
+  // ======================================================================
+  // IntroScreen から「続行する / サインインする / 登録完了」押下時
   // ======================================================================
   const handleIntroContinue = async (data: OnboardingData) => {
+    // 🌟 連打・多重実行ガード（409 Conflict 誘発を完全防止）
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    // 🌟 前のアカウントの残留ステートを完全にクリアしてアカウント間分離を徹底
+    setSelectedArchetype(MBTI_ARCHETYPES.INTJ);
+    setTraitScores(null);
+    setCustomMoffyImageUrl(null);
+    setNormalMoffyImageUrl(null);
+    setEquippedMoffyImageUrl(null);
+    setCardDataUrl('');
+    setCardBlob(null);
+
     setDiscordUserId(data.discordUserId);
     setHasMoffy(data.hasMoffy);
     setUploadedPhoto(data.uploadedPhoto);
-    setLoadingMode(data.authMode);
+    setLoadingMode(data.authMode === 'google_onboarding' ? 'signup' : data.authMode);
     setPipelineTitle('ロード中...');
     setPipelineMessage('');
     setStage('generating');
@@ -93,47 +306,111 @@ export const App: React.FC = () => {
     try {
       let result: RegistrationResult;
 
-      if (data.authMode === 'signin') {
-        // === サインイン処理：登録済みユーザーのプロフィールを取得 ===
-        const existingProfile = await fetchUserProfile(data.discordUserId);
-        if (!existingProfile) {
-          throw new Error(
-            `ユーザー「${data.discordUserId}」のアカウントが見つかりませんでした。「サインアップ」から新規登録を行ってください。`
-          );
+      if (data.authMode === 'google_onboarding') {
+        // === Google初回連携アカウント登録 (POST /api/google/register) ===
+        if (!data.tempToken) {
+          throw new Error('Google認証トークンが見つかりません。もう一度Googleアカウント連携をお試しください。');
         }
-        result = existingProfile;
+
+        const registerRes = await registerGoogleUser({
+          temp_token: data.tempToken,
+          discord_user_id: data.discordUserId,
+          grade: data.grade,
+          university: data.university,
+          photo: data.uploadedPhoto,
+        });
+
+        if (!registerRes.user) {
+          throw new Error('ユーザー登録情報の取得に失敗しました');
+        }
+
+        result = {
+          discord_user_id: registerRes.user.discord_user_id,
+          photo_url: registerRes.user.photo_url || null,
+          default_photo_url: registerRes.user.default_photo_url || null,
+          arranged_photo_url: registerRes.user.arranged_photo_url || null,
+          grade: registerRes.user.grade || data.grade,
+          university: registerRes.user.university || data.university,
+          is_staff: !!registerRes.user.is_staff,
+          created_at: registerRes.user.created_at,
+          updated_at: registerRes.user.updated_at,
+          google_id: registerRes.user.google_id || null,
+        };
+
+        if (data.uploadedPhoto) {
+          const localUrl = URL.createObjectURL(data.uploadedPhoto);
+          setCustomMoffyImageUrl(localUrl);
+          setNormalMoffyImageUrl(localUrl);
+          setEquippedMoffyImageUrl(localUrl);
+        }
+      } else if (data.authMode === 'signin') {
+        // === サインイン処理：正規認証エンドポイント (POST /api/user/login) を実行 ===
+        const loginRes = await loginUser(data.discordUserId, data.password || '');
+        result = loginRes.user;
+
+        // 1. 同一ブラウザに保存されたアカウント固有のセッションを確認
+        const localSession = loadUserSession(data.discordUserId);
+        if (!result.grade && localSession?.grade) result.grade = localSession.grade;
+        if (!result.university && localSession?.university) result.university = localSession.university;
 
         // 既存ユーザーのプロフィール写真（アレンジ画像を優先）
-        const existingPhoto = existingProfile.arranged_photo_url || existingProfile.photo_url;
+        const arrangedPhoto = result.arranged_photo_url || localSession?.arrangedPhotoUrl || null;
+        const defaultPhoto = result.default_photo_url || result.photo_url || localSession?.defaultPhotoUrl || arrangedPhoto;
+        const existingPhoto = arrangedPhoto || defaultPhoto;
+
         if (existingPhoto) {
-          setHasMoffy(true);
           setCustomMoffyImageUrl(existingPhoto);
-          setNormalMoffyImageUrl(existingProfile.photo_url || existingPhoto);
-          setEquippedMoffyImageUrl(existingProfile.arranged_photo_url || existingPhoto);
+          setNormalMoffyImageUrl(defaultPhoto);
+          setEquippedMoffyImageUrl(arrangedPhoto || existingPhoto);
         }
 
-        // 🌟 アレンジモッフィーが既に存在するなら、人格診断（quiz）を実行しない！
-        const hasArrangedMoffy = !!(
-          existingProfile.arranged_photo_url &&
-          existingProfile.arranged_photo_url.trim()
-        );
+        // 🌟 アレンジモッフィー（キーアイテム合成完了済み）が既に存在するなら、即座に復元して結果表示
+        const hasArrangedMoffy = !!(arrangedPhoto && arrangedPhoto.trim());
+        setHasMoffy(hasArrangedMoffy);
 
         if (hasArrangedMoffy) {
           setRegResult(result);
 
-          // カードBlobを生成して直接リザルト画面へ遷移
-          const archetypeToUse =
-            ((existingProfile as any).mbti && MBTI_ARCHETYPES[(existingProfile as any).mbti as MbtiType]) ||
-            selectedArchetype;
+          // MBTIタイプの復元優先度:
+          // 1. localSession の MBTI
+          // 2. result.mbti (API URL パラメータから復元)
+          // 3. デフォルト (INTJ)
+          const resolvedMbti = (localSession?.mbti || result.mbti || 'INTJ') as MbtiType;
+          const archetypeToUse = MBTI_ARCHETYPES[resolvedMbti] || MBTI_ARCHETYPES.INTJ;
           setSelectedArchetype(archetypeToUse);
 
-          const { blob, dataUrl } = await generateProfileCardBlob(
-            archetypeToUse,
-            data.discordUserId,
-            existingProfile.arranged_photo_url
-          );
-          setCardBlob(blob);
-          setCardDataUrl(dataUrl);
+          if (localSession?.traitScores) {
+            setTraitScores(localSession.traitScores);
+          }
+
+          // 🌟 パートナーカードの復元:
+          // ローカルストレージに cardDataUrl が保存されていれば、生成時の高品質カードを瞬時に復元！
+          if (localSession?.cardDataUrl) {
+            setCardDataUrl(localSession.cardDataUrl);
+            const restoredBlob = base64ToBlob(localSession.cardDataUrl);
+            setCardBlob(restoredBlob);
+          } else {
+            // 別端末などローカルに無い場合は、CORS安全ローダーを備えた generateProfileCardBlob で再生成
+            const { blob, dataUrl } = await generateProfileCardBlob(
+              archetypeToUse,
+              data.discordUserId,
+              arrangedPhoto
+            );
+            setCardBlob(blob);
+            setCardDataUrl(dataUrl);
+
+            // 次回復元のためにローカル保存
+            saveUserSession({
+              discordUserId: data.discordUserId,
+              mbti: archetypeToUse.mbtiCode,
+              cardDataUrl: dataUrl,
+              arrangedPhotoUrl: arrangedPhoto,
+              defaultPhotoUrl: defaultPhoto,
+              grade: result.grade,
+              university: result.university,
+              updatedAt: new Date().toISOString(),
+            });
+          }
 
           setIsBursting(true);
           setTimeout(() => {
@@ -146,8 +423,11 @@ export const App: React.FC = () => {
         }
       } else {
         // === サインアップ処理：新規ユーザーをバックエンドに登録 ===
-        // アカウント作成時に画像が必須ではなくなったため、白い画像は送信せず uploadedPhoto のみ送信
-        result = await registerUserProfile(data.discordUserId, data.password, data.uploadedPhoto);
+        result = await registerUserProfile(data.discordUserId, data.password || '', {
+          grade: data.grade,
+          university: data.university,
+          photoBlob: data.uploadedPhoto,
+        });
 
         if (data.uploadedPhoto) {
           const localUrl = URL.createObjectURL(data.uploadedPhoto);
@@ -172,6 +452,8 @@ export const App: React.FC = () => {
       const message = err instanceof Error ? err.message : '認証処理中にエラーが発生しました';
       setErrorMsg(message);
       setStage('intro');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -243,6 +525,19 @@ export const App: React.FC = () => {
       );
       setCardBlob(blob);
       setCardDataUrl(dataUrl);
+
+      // 🌟 アカウント固有のセッションを localStorage に保存！
+      saveUserSession({
+        discordUserId,
+        mbti: targetArchetype.mbtiCode,
+        traitScores,
+        cardDataUrl: dataUrl,
+        arrangedPhotoUrl: customMoffyImageUrl,
+        defaultPhotoUrl: normalMoffyImageUrl,
+        grade: regResult?.grade,
+        university: regResult?.university,
+        updatedAt: new Date().toISOString(),
+      });
 
       // ロード終了・中央星収束アニメーションを開始（ワンカット長回し）
       setIsLoadingEnding(true);
@@ -323,17 +618,19 @@ export const App: React.FC = () => {
       setCustomMoffyImageUrl(finalMoffyLocalUrl);
 
       // Step 3: バックエンドのプロフィール写真（1枚目デフォルト: createRes.image_url, 2枚目アレンジ: editRes.image_url）を更新
+      // 🌟 クエリパラメータに ?mbti=XXXX を付加して保存することでクラウド側でもMBTIを保持
       setPipelineMessage('プロフィール写真を更新中...');
       try {
         await updateProfilePhotos(discordUserId, {
           defaultPhoto: createRes.image_url,
           arrangedPhoto: editRes.image_url,
+          mbti: selectedArchetype.mbtiCode,
         });
       } catch (err) {
         console.warn('Could not update profile photos via /api/v1/profile/photo:', err);
         // フォールバック: arranged_photo を個別更新
         try {
-          await updateArrangedPhoto(discordUserId, editRes.image_url);
+          await updateArrangedPhoto(discordUserId, editRes.image_url, selectedArchetype.mbtiCode);
         } catch (fallbackErr) {
           console.warn('Fallback arranged photo update also failed:', fallbackErr);
         }
@@ -348,6 +645,19 @@ export const App: React.FC = () => {
       setCardBlob(blob);
       setCardDataUrl(dataUrl);
 
+      // 🌟 アカウント固有のセッションを localStorage に保存！
+      saveUserSession({
+        discordUserId,
+        mbti: selectedArchetype.mbtiCode,
+        traitScores,
+        cardDataUrl: dataUrl,
+        arrangedPhotoUrl: editRes.image_url,
+        defaultPhotoUrl: createRes.image_url,
+        grade: regResult?.grade,
+        university: regResult?.university,
+        updatedAt: new Date().toISOString(),
+      });
+
       // ロード終了・中央星収束アニメーションを開始（ワンカット長回し）
       setIsLoadingEnding(true);
     } catch (err: unknown) {
@@ -360,6 +670,15 @@ export const App: React.FC = () => {
         const { blob, dataUrl } = await generateProfileCardBlob(selectedArchetype, discordUserId);
         setCardBlob(blob);
         setCardDataUrl(dataUrl);
+        saveUserSession({
+          discordUserId,
+          mbti: selectedArchetype.mbtiCode,
+          traitScores,
+          cardDataUrl: dataUrl,
+          arrangedPhotoUrl: null,
+          defaultPhotoUrl: null,
+          updatedAt: new Date().toISOString(),
+        });
         setIsLoadingEnding(true);
       } catch (fallbackErr) {
         console.error('Fallback card generation also failed:', fallbackErr);
@@ -369,18 +688,27 @@ export const App: React.FC = () => {
     }
   };
 
-  // リセット
+  // 完全リセット（別のアカウントでログイン / ログアウト）
   const handleReset = () => {
+    // 🌟 URLパラメータ (?discord_id=xxx 等) を完全にクリアして次ユーザーへの混入・残留を防止
+    if (typeof window !== 'undefined') {
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+    // 🌟 JWT認証トークンをセッションから破棄
+    setStoredAuthToken(null);
+
     setStage('intro');
     setIsDarkTheme(true);
     setDiscordUserId('');
+    setSelectedArchetype(MBTI_ARCHETYPES.INTJ);
     setCardDataUrl('');
     setCardBlob(null);
     setTraitScores(null);
     setRegResult(null);
     setErrorMsg(null);
     setIsBursting(false);
-    setHasMoffy(true);
+    setHasMoffy(false);
     setUploadedPhoto(null);
     setNormalMoffyImageUrl(null);
     setEquippedMoffyImageUrl(null);
@@ -388,6 +716,27 @@ export const App: React.FC = () => {
     setPipelineTitle('');
     setPipelineMessage('');
     setIsLoadingEnding(false);
+    setLoadingMode('signup');
+    setGoogleOnboardingInfo(null);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  };
+
+  // このアカウントで性格診断をやり直す
+  const handleRetakeQuiz = () => {
+    setSelectedArchetype(MBTI_ARCHETYPES.INTJ);
+    setCardDataUrl('');
+    setCardBlob(null);
+    setTraitScores(null);
+    setErrorMsg(null);
+    setIsBursting(false);
+    setHasMoffy(false);
+    setUploadedPhoto(null);
+    setNormalMoffyImageUrl(null);
+    setEquippedMoffyImageUrl(null);
+    setCustomMoffyImageUrl(null);
+    setIsDarkTheme(false);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    setStage('quiz');
   };
 
   return (
@@ -447,7 +796,11 @@ export const App: React.FC = () => {
         {stage === 'intro' && (
           <IntroScreen
             onContinue={handleIntroContinue}
+            onGoogleSignIn={handleGoogleSignIn}
+            onCancelGoogleOnboarding={handleCancelGoogleOnboarding}
+            googleOnboardingInfo={googleOnboardingInfo}
             initialId={discordUserId}
+            isSubmitting={isSubmitting}
           />
         )}
 
@@ -470,6 +823,7 @@ export const App: React.FC = () => {
 
         {stage === 'quiz' && (
           <QuizScreen
+            key={`quiz_${discordUserId}`}
             questions={PERSONALITY_QUESTIONS}
             onFinish={handleQuizFinish}
             onDarknessChange={(isDark) => setIsDarkTheme(isDark)}
@@ -498,6 +852,7 @@ export const App: React.FC = () => {
             equippedImageUrl={equippedMoffyImageUrl || customMoffyImageUrl || undefined}
             chosenShard={chosenShard}
             onReset={handleReset}
+            onRetakeQuiz={handleRetakeQuiz}
           />
         )}
       </main>
