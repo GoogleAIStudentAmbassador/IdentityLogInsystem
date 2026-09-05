@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Check, Sparkles, ArrowRight } from 'lucide-react';
+import { Check, Sparkles, ArrowRight, AlertCircle, X } from 'lucide-react';
 import type { LikertQuestion } from '../types';
 import { StarField } from './StarField';
 
@@ -59,7 +59,19 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
   const [revealedCount, setRevealedCount] = useState(1);
   const [scrollY, setScrollY] = useState(0);
   const [answerPulse, setAnswerPulse] = useState(0);
+  const [showQuickConfirm, setShowQuickConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Escapeキーでクイック回答確認モーダルを閉じる
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showQuickConfirm) {
+        setShowQuickConfirm(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showQuickConfirm]);
 
   // マウント時に確実にトップへスクロール
   useEffect(() => {
@@ -392,6 +404,27 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
           );
         })}
 
+        {/* クイック回答ボタン（16問以上回答かつ全問未回答時に下部に表示） */}
+        {touched.size >= 16 && touched.size < totalQ && (
+          <div className="animate-fade-in pt-8 pb-4 flex flex-col items-center">
+            <button
+              type="button"
+              onClick={() => setShowQuickConfirm(true)}
+              className={`w-full max-w-xs min-h-[48px] px-6 py-3 rounded-full text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
+                isHeaderDark
+                  ? 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600 hover:border-gray-400'
+                  : 'bg-white hover:bg-gray-50 text-gray-800 border border-gray-300 hover:border-gray-400'
+              }`}
+            >
+              <span>クイック回答で完了する ({touched.size}問で診断)</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <p className="text-[11px] text-gray-500 mt-2 text-center">
+              ※ 16問回答時点で簡易判定が可能です
+            </p>
+          </div>
+        )}
+
         {/* 診断結果を見るボタン */}
         {touched.size === totalQ && (
           <div className="animate-fade-in pt-10 pb-8 flex justify-center">
@@ -406,6 +439,74 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
           </div>
         )}
       </div>
+
+      {/* クイック回答の警告確認モーダル */}
+      {showQuickConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="quick-confirm-title"
+        >
+          <div className="relative w-full max-w-sm bg-gray-900 border border-gray-700 rounded-3xl p-6 text-left shadow-2xl text-white space-y-4">
+            {/* ヘッダー */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
+                <AlertCircle className="w-5 h-5 shrink-0 text-amber-400" />
+                <span id="quick-confirm-title">クイック回答の確認</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowQuickConfirm(false)}
+                className="text-gray-400 hover:text-white p-1 rounded-full transition-colors cursor-pointer"
+                aria-label="閉じる"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 警告メッセージ */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-gray-100 leading-snug">
+                診断結果を今すぐ入手しますが、精度が低下します。
+              </p>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                全32問に回答することで、より精密な性格判定とあなたの個性にぴったりのモッフィー生成が行われます。
+              </p>
+            </div>
+
+            {/* 回答状況表示 */}
+            <div className="px-3.5 py-2.5 rounded-2xl bg-gray-800/80 border border-gray-700/80 text-xs text-gray-300 flex items-center justify-between font-mono">
+              <span className="text-gray-400 font-sans">現在の回答数</span>
+              <span className="font-semibold text-blue-400">{touched.size} / {totalQ} 問</span>
+            </div>
+
+            {/* アクションボタン */}
+            <div className="pt-2 flex flex-col gap-2.5">
+              {/* プライマリ（推奨）：継続して回答 */}
+              <button
+                type="button"
+                onClick={() => setShowQuickConfirm(false)}
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-full bg-[#1a73e8] hover:bg-blue-600 active:scale-[0.99] text-white text-sm font-semibold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <span>続けて回答する (推奨)</span>
+              </button>
+
+              {/* セカンダリ：警告を承諾してこのまま結果を入手 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowQuickConfirm(false);
+                  handleFinish();
+                }}
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-full bg-transparent hover:bg-white/10 active:scale-[0.99] text-gray-400 hover:text-gray-200 border border-gray-700 text-xs font-medium transition-all flex items-center justify-center cursor-pointer"
+              >
+                <span>このまま結果を入手する</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

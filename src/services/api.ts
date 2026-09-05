@@ -6,11 +6,14 @@ import type {
   EditImageResponse,
   PartnerProfileResponse,
   MbtiType,
+  Archetype,
   LoginResponse,
   AuthConfigResponse,
   GoogleLoginResponse,
   GoogleRegisterPayload,
 } from '../types';
+import { ARCHETYPE_DEFAULTS } from '../data/personalityQuestions';
+
 
 /**
  * 画像URLのクエリパラメータ（?mbti=XXXX）からMBTIタイプを抽出します。
@@ -724,5 +727,117 @@ export async function fetchImageAsBlob(imageUrl: string): Promise<Blob> {
 
   // 3. 最後のフォールバックとして urlToBlob
   return await urlToBlob(imageUrl);
+}
+
+/**
+ * ユーザーの「願い事」と「希望する毛色」、および診断結果のMBTIアーキタイプをもとに、
+ * バックエンドのGeminiテキストAPI（POST /api/v1/gem_text）で深層分析し、
+ * モッフィー公式生成API（create_moffy）に投入可能な CreateMoffyParams を構造化生成します。
+ * 
+ * フェイルセーフ（Fail-Safe）:
+ * APIキーに AI生成権限がない場合（403）や通信エラー、JSONパースエラーが発生した場合でも、
+ * 診断されたMBTIアーキタイプのデフォルト定義（ARCHETYPE_DEFAULTS）と
+ * ユーザーが入力した毛色を安全に合成して即座にフォールバック返却します。
+ */
+export async function analyzeMoffyWishWithGemini(params: {
+  wish: string;
+  color: string;
+  archetype: Archetype;
+}): Promise<CreateMoffyParams> {
+  const { wish, color, archetype } = params;
+  const mbtiCode = archetype.mbtiCode;
+  const defaults = ARCHETYPE_DEFAULTS[mbtiCode] || ARCHETYPE_DEFAULTS.INTJ;
+
+  const fallbackParams: CreateMoffyParams = {
+    color: color.trim() || defaults.color,
+    expression: defaults.expression,
+    hair_features: defaults.hair_features,
+    body_shape: defaults.body_shape,
+    body_features: defaults.body_features,
+    mouth_features: defaults.mouth_features,
+    accessories: 'なし',
+  };
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    console.warn('[analyzeMoffyWishWithGemini] No API key, using archetype fallback.');
+    return fallbackParams;
+  }
+
+  const prompt = `あなたは「Google AI 学生アンバサダー」の公式マスコットキャラクター「モッフィー（Moffy）」の専属デザイナーAIです。
+ユーザーが性格診断で導き出されたMBTI性格タイプ「${mbtiCode} (${archetype.title})」、希望する毛色、そしてモッフィーへの「願い事」を入力しました。
+ユーザーの願い事の本質と感情を受け止め、モッフィー公式生成APIに入力可能なキャラクターデザインパラメータをJSON形式で構築してください。
+
+【ユーザー入力情報】
+- 性格タイプ (MBTI): ${mbtiCode} (${archetype.title} - ${archetype.description})
+- 希望する毛色: ${color.trim() || defaults.color}
+- モッフィーへの願い事: ${wish.trim() || 'いつも隣でそっと寄り添って応援してほしい'}
+
+【モッフィー公式基本ルール（絶対遵守）】
+1. NO NOSE（絶対に鼻を描かない）
+2. 瞳の中央に白い四芒星（★）のハイライトが入ったキラキラした大きな瞳
+3. 丸っこいぽってりとした2頭身のぬいぐるみシルエット
+4. 背中には小さな妖精の白い羽、小さな手足
+
+【出力形式】
+以下のキーを持つ単一の有効なJSONオブジェクトのみを出力してください。Markdownのコードブロック（\`\`\`json など）で囲んで構いません。
+- color: 希望する毛色をベースにした、美しい色彩表現（例: "パステルピンク（柔らかな桜色のふわふわな毛色）"）
+- expression: 願い事やMBTIに寄り添った、愛らしい表情（例: "願い事を叶えようと瞳をキラキラ輝かせた、優しく温かな満面の笑顔"）
+- hair_features: 願い事に合わせた毛並み・質感（例: "わたあめのように極めて柔らかく、光をまとったふわふわな毛並み"）
+- body_shape: "丸っこい2頭身でぽってりした形"
+- body_features: "小さな手足、背中に小さな白い羽"
+- mouth_features: 表情に合わせた愛らしい口元（例: "小さく開いたかわいい口、ちょこんと出た小さな八重歯"）
+- accessories: "なし"`;
+
+  try {
+    const baseUrl = getApiBaseUrl();
+    const formData = new FormData();
+    formData.append('prompt', prompt);
+
+    const res = await fetch(`${baseUrl}/api/v1/gem_text`, {
+      method: 'POST',
+      headers: {
+        'X-API-Key': apiKey,
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      console.warn(`[analyzeMoffyWishWithGemini] API returned ${res.status}, falling back to defaults.`);
+      return fallbackParams;
+    }
+
+    const data = await res.json();
+    const text: string = data.text || '';
+    if (!text) {
+      return fallbackParams;
+    }
+
+    let jsonStr = text;
+    const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1];
+    } else {
+      const objMatch = text.match(/\{[\s\S]*\}/);
+      if (objMatch) {
+        jsonStr = objMatch[0];
+      }
+    }
+
+    const parsed = JSON.parse(jsonStr);
+
+    return {
+      color: parsed.color || fallbackParams.color,
+      expression: parsed.expression || fallbackParams.expression,
+      hair_features: parsed.hair_features || fallbackParams.hair_features,
+      body_shape: parsed.body_shape || fallbackParams.body_shape,
+      body_features: parsed.body_features || fallbackParams.body_features,
+      mouth_features: parsed.mouth_features || fallbackParams.mouth_features,
+      accessories: parsed.accessories || 'なし',
+    };
+  } catch (err) {
+    console.warn('[analyzeMoffyWishWithGemini] Analysis failed or parse error, fallback to defaults:', err);
+    return fallbackParams;
+  }
 }
 

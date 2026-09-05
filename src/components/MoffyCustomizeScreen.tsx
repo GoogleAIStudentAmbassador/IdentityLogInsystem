@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, RotateCcw } from 'lucide-react';
-import type { Archetype, CreateMoffyParams, MbtiType } from '../types';
+import { ArrowRight, Loader2, RotateCcw } from 'lucide-react';
+import type { Archetype, CreateMoffyParams } from '../types';
+import { ARCHETYPE_DEFAULTS } from '../data/personalityQuestions';
+import { analyzeMoffyWishWithGemini } from '../services/api';
 
 interface MoffyCustomizeScreenProps {
   archetype: Archetype;
@@ -9,145 +11,21 @@ interface MoffyCustomizeScreenProps {
   isSubmitting?: boolean;
 }
 
-interface ArchetypeDefault {
-  color: string;
-  expression: string;
-  hair_features: string;
-  body_shape: string;
-  body_features: string;
-  mouth_features: string;
-}
+const COLOR_PRESETS = [
+  '純白',
+  'ディープパープル',
+  'パステルピンク',
+  'スカイブルー',
+  'ミントグリーン',
+  'ロイヤルゴールド',
+];
 
-const ARCHETYPE_DEFAULTS: Record<MbtiType, ArchetypeDefault> = {
-  INTJ: {
-    color: 'ディープパープル（深宇宙のような上品な紫）',
-    expression: '冷静沈着で深い洞察と知性に満ちた穏やかな微笑み',
-    hair_features: '長毛で綿毛のように細かくふわふわした毛並み、上品なツヤ',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '小さく開いたかわいい口、ちょこんと出た小さな八重歯',
-  },
-  INTP: {
-    color: 'ターコイズブルー（透明感ある知性の水色）',
-    expression: '知的好奇心にあふれ、ひらめきで瞳をキラキラ輝かせた思索の表情',
-    hair_features: '綿毛のようにふわふわと柔らかいエアリーな毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '小さく開いたかわいい口、ちょこんと出た小さな八重歯',
-  },
-  ENTJ: {
-    color: 'ロイヤルゴールド（輝くリーダーシップの黄金色）',
-    expression: '自信に満ちあふれた、チームを率いる誇らしげで頼もしい笑顔',
-    hair_features: '豊かで上質な、光沢をまとったふわふわの毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: 'にっこりと上がった口角、ちょこんと出た小さな八重歯',
-  },
-  ENTP: {
-    color: 'ネオンオレンジ（ひらめきと活気のビタミンカラー）',
-    expression: '遊び心に満ちた、いたずらっぽくも知的なひらめきの笑顔',
-    hair_features: '少し毛先が跳ねた元気でふわふわな毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '楽しそうに開いたかわいい口、ちょこんと出た小さな八重歯',
-  },
-  INFJ: {
-    color: 'フォレストエメラルドグリーン（深い安らぎと神秘の深緑）',
-    expression: '静かで深い慈愛と共感に満ちた、すべてを優しく包み込む穏やかな微笑み',
-    hair_features: 'シルクのように繊細で、綿雪のように柔らかな毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '小さく微笑むやさしい口元、ちょこんと出た小さな八重歯',
-  },
-  INFP: {
-    color: 'パステルピンク（夢見るイマジネーションの桜色）',
-    expression: '夢見るように純粋で、温かいイマジネーションにあふれた優しい微笑み',
-    hair_features: 'わたあめのように極めて柔らかくふわふわな毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '小さく開いたかわいい口、ちょこんと出た小さな八重歯',
-  },
-  ENFJ: {
-    color: 'ウォームアンバーイエロー（周囲を明るく照らす陽光色）',
-    expression: '太陽のように温かく、誰もを歓迎するポジティブな最高の笑顔',
-    hair_features: '温もりを感じるふかふかの豊かな毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '大きく開いた朗らかな笑顔、ちょこんと出た小さな八重歯',
-  },
-  ENFP: {
-    color: 'スカイブルー（青空のように自由で爽快な水色）',
-    expression: '好奇心とワクワクが止まらない、口をいっぱいに開けた満面の笑顔',
-    hair_features: '軽やかでぽよぽよ弾むような超ふわふわの毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '元気いっぱいに開いた笑顔、ちょこんと出た小さな八重歯',
-  },
-  ISTJ: {
-    color: 'クラシックネイビーブルー（誠実と信頼の深藍色）',
-    expression: '誠実で几帳面、安心感と信頼を与える穏やかで真面目な微笑み',
-    hair_features: '整然と美しく整った、きめ細かく上質なふわふわの毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '小さく結ばれた几帳面な口元、ちょこんと出た小さな八重歯',
-  },
-  ISFJ: {
-    color: 'ミントグリーン（心癒やすやわらかなミント色）',
-    expression: '心がほっとするような、思いやりと温もりに満ちた優しい笑顔',
-    hair_features: '暖かな毛布のようにふんわり包み込む柔らかな毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: 'おだやかに微笑むかわいい口、ちょこんと出た小さな八重歯',
-  },
-  ESTJ: {
-    color: 'インディゴブルー（規律と行動力を宿す濃紺色）',
-    expression: '仕事ができて頼もしい、テキパキとしたプロフェッショナルな微笑み',
-    hair_features: '手入れの行き届いた清潔感あふれるふわふわの毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: 'きりっと引き締まりつつも愛らしい口元、小さな八重歯',
-  },
-  ESFJ: {
-    color: 'コーラルピンク（親しみと華やかさの珊瑚色）',
-    expression: '仲間と一緒に過ごせる喜びがあふれる、華やかで明るい笑顔',
-    hair_features: 'ふんわりボリューミーで愛嬌たっぷりの毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '嬉しそうに開いた口元、ちょこんと出た小さな八重歯',
-  },
-  ISTP: {
-    color: 'スレートグレー（クールなクラフトマンシップの鋼色）',
-    expression: 'クールで職人気質、集中力に研ぎ澄まされた静かな自信の眼差し',
-    hair_features: '無駄のないすっきりとした質感のふわふわ毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '控えめに結ばれた口元、ちょこんと出た小さな八重歯',
-  },
-  ISFP: {
-    color: 'ラベンダーパープル（感性豊かなアーティストの藤色）',
-    expression: '心地よいリズムに身をゆだねる、リラックスしたマイペースな笑顔',
-    hair_features: '波打つように柔らかくふんわりとした毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: 'ほんのり微笑むかわいい口、ちょこんと出た小さな八重歯',
-  },
-  ESTP: {
-    color: 'クリムゾンレッド（情熱的でスリリングな紅赤色）',
-    expression: 'どんなチャレンジも受けて立つ、不敵でエネルギッシュな頼もしい笑み',
-    hair_features: 'エネルギッシュで躍動感のあるふわふわな毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: 'いたずらっぽくニッと笑った口、ちょこんと出た小さな八重歯',
-  },
-  ESFP: {
-    color: 'ローズピンク（ステージを華やかに彩る薔薇色）',
-    expression: 'スポットライトを浴びて心から楽しんでいる、最高に輝くキュートな笑顔',
-    hair_features: 'キラキラ光の粒子をまとったような華やかふわふわ毛並み',
-    body_shape: '丸っこい2頭身でぽってりした形',
-    body_features: '小さな手足、背中に小さな白い羽',
-    mouth_features: '大きく開いた楽しげな笑顔、ちょこんと出た小さな八重歯',
-  },
-};
+const WISH_INSPIRATIONS = [
+  'プログラミングを一緒に頑張りたい',
+  '疲れた時に優しく癒やしてほしい',
+  '新しいアイデアをたくさん閃きたい',
+  'みんなを笑顔にする元気を分けてほしい',
+];
 
 export const MoffyCustomizeScreen: React.FC<MoffyCustomizeScreenProps> = ({
   archetype,
@@ -158,11 +36,8 @@ export const MoffyCustomizeScreen: React.FC<MoffyCustomizeScreenProps> = ({
   const defaults = ARCHETYPE_DEFAULTS[archetype.mbtiCode] || ARCHETYPE_DEFAULTS.INTJ;
 
   const [color, setColor] = useState(defaults.color);
-  const [expression, setExpression] = useState(defaults.expression);
-  const [hairFeatures, setHairFeatures] = useState(defaults.hair_features);
-  const [bodyShape, setBodyShape] = useState(defaults.body_shape);
-  const [bodyFeatures, setBodyFeatures] = useState(defaults.body_features);
-  const [mouthFeatures, setMouthFeatures] = useState(defaults.mouth_features);
+  const [wish, setWish] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // マウント時に確実に画面最上部へスクロール
   useEffect(() => {
@@ -171,72 +46,110 @@ export const MoffyCustomizeScreen: React.FC<MoffyCustomizeScreenProps> = ({
 
   const handleResetDefaults = () => {
     setColor(defaults.color);
-    setExpression(defaults.expression);
-    setHairFeatures(defaults.hair_features);
-    setBodyShape(defaults.body_shape);
-    setBodyFeatures(defaults.body_features);
-    setMouthFeatures(defaults.mouth_features);
+    setWish('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({
-      color: color.trim() || defaults.color,
-      expression: expression.trim() || defaults.expression,
-      hair_features: hairFeatures.trim() || defaults.hair_features,
-      body_shape: bodyShape.trim() || defaults.body_shape,
-      body_features: bodyFeatures.trim() || defaults.body_features,
-      mouth_features: mouthFeatures.trim() || defaults.mouth_features,
-      accessories: 'なし',
-    });
+    if (isAnalyzing || isSubmitting) return;
+
+    setIsAnalyzing(true);
+    try {
+      // Geminiで願い事と毛色を分析し、モッフィー作成API用パラメータに変換
+      const structuredParams = await analyzeMoffyWishWithGemini({
+        wish: wish.trim(),
+        color: color.trim() || defaults.color,
+        archetype,
+      });
+
+      onSubmit(structuredParams);
+    } catch (err) {
+      console.error('Failed to analyze wish with Gemini:', err);
+      // 万が一の例外時もデフォルト値でフォールバックして進行
+      onSubmit({
+        color: color.trim() || defaults.color,
+        expression: defaults.expression,
+        hair_features: defaults.hair_features,
+        body_shape: defaults.body_shape,
+        body_features: defaults.body_features,
+        mouth_features: defaults.mouth_features,
+        accessories: 'なし',
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
+
+  const isLoading = isAnalyzing || isSubmitting;
 
   return (
     <div className="w-full min-h-screen bg-black text-white px-6 pt-6 pb-16 flex flex-col items-center">
       <div className="w-full max-w-md flex flex-col">
-        {/* 入力フォーム（ボックス全廃・フラットな分割線レイアウト） */}
+        {/* ヘッダーエリア */}
+        <div className="mb-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-google-blue mb-3">
+            <span>{archetype.mbtiCode}</span>
+            <span className="text-white/30">|</span>
+            <span className="text-gray-300">{archetype.title}</span>
+          </div>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white mb-2">
+            あなたの妖精を創造する
+          </h1>
+          <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
+            診断された性格特性とあなたの願いをもとに、AIが世界に一匹だけのモッフィーをデザインします。
+          </p>
+        </div>
+
+        {/* 2問のシンプルフォーム */}
         <form onSubmit={handleSubmit} className="w-full animate-fade-in">
-          {/* リセットボタン */}
+          {/* コントロールヘッダー */}
           <div className="flex items-center justify-between pb-3 border-b border-white/10">
             <span className="text-xs font-mono uppercase tracking-widest text-gray-400 font-semibold">
-              PARAMETERS
+              CUSTOMIZE
             </span>
             <button
               type="button"
               onClick={handleResetDefaults}
-              className="text-xs font-mono text-gray-400 hover:text-white transition-colors cursor-pointer inline-flex items-center gap-1"
+              disabled={isLoading}
+              className="text-xs font-mono text-gray-400 hover:text-white transition-colors cursor-pointer inline-flex items-center gap-1 disabled:opacity-40"
             >
               <RotateCcw className="w-3 h-3" />
               <span>初期値に戻す</span>
             </button>
           </div>
 
-          {/* フィールドリスト（divide-y divide-white/10 による完全フラット構造） */}
+          {/* 質問リスト */}
           <div className="divide-y divide-white/10">
-            {/* 1. モッフィーのカラー */}
+            {/* 1問目: あなたの望む妖精の毛色はナニ？ */}
             <div className="py-6">
               <div className="flex items-center justify-between mb-2">
-                <label htmlFor="field-color" className="text-xs font-mono tracking-wider uppercase text-gray-300 font-semibold">
-                  1. モッフィーのカラー
+                <label htmlFor="field-color" className="text-sm font-medium tracking-wide text-gray-200">
+                  あなたの望む妖精の毛色はナニ？
                 </label>
-                <span className="text-[11px] text-gray-500 font-sans">色彩</span>
+                <span className="text-[11px] text-gray-500 font-mono">Q1</span>
               </div>
               <input
                 id="field-color"
                 type="text"
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
-                placeholder="例: ディープパープル、パステルピンク、純白"
-                className="w-full h-12 px-4 rounded-full border border-white/15 bg-white/[0.02] text-white text-sm focus:outline-none focus:border-google-blue transition-colors placeholder-gray-600"
+                placeholder="例: 純白、ディープパープル、パステルピンク"
+                className="w-full h-12 px-4 rounded-xl border border-white/15 bg-white/[0.02] text-white text-sm focus:outline-none focus:border-google-blue transition-colors placeholder-gray-600"
                 required
+                disabled={isLoading}
               />
-              <div className="flex flex-wrap gap-1.5 mt-2.5">
-                {['純白', 'ディープパープル', 'パステルピンク', 'スカイブルー', 'ミントグリーン', 'ロイヤルゴールド'].map((c) => (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {COLOR_PRESETS.map((c) => (
                   <button
                     type="button"
                     key={c}
                     onClick={() => setColor(c)}
-                    className="px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/10 text-[11px] text-gray-400 hover:text-gray-200 transition-colors border border-white/10 cursor-pointer"
+                    disabled={isLoading}
+                    className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-medium transition-all border cursor-pointer ${
+                      color === c
+                        ? 'bg-google-blue/20 text-blue-300 border-google-blue/50'
+                        : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-gray-200 border-white/10'
+                    }`}
                   >
                     {c}
                   </button>
@@ -244,128 +157,66 @@ export const MoffyCustomizeScreen: React.FC<MoffyCustomizeScreenProps> = ({
               </div>
             </div>
 
-            {/* 2. 表情 */}
+            {/* 2問目: あなたの妖精への願い事はナニ？ */}
             <div className="py-6">
               <div className="flex items-center justify-between mb-2">
-                <label htmlFor="field-expression" className="text-xs font-mono tracking-wider uppercase text-gray-300 font-semibold">
-                  2. 表情
+                <label htmlFor="field-wish" className="text-sm font-medium tracking-wide text-gray-200">
+                  あなたの妖精への願い事はナニ？
                 </label>
-                <span className="text-[11px] text-gray-500 font-sans">まなざし</span>
+                <span className="text-[11px] text-gray-500 font-mono">Q2</span>
               </div>
-              <input
-                id="field-expression"
-                type="text"
-                value={expression}
-                onChange={(e) => setExpression(e.target.value)}
-                placeholder="例: 冷静沈着で穏やかな微笑み、満面の笑顔"
-                className="w-full h-12 px-4 rounded-full border border-white/15 bg-white/[0.02] text-white text-sm focus:outline-none focus:border-google-blue transition-colors placeholder-gray-600"
+              <textarea
+                id="field-wish"
+                rows={3}
+                value={wish}
+                onChange={(e) => setWish(e.target.value)}
+                placeholder="例: プログラミングや勉強を隣で見守ってほしい、疲れたときに優しく癒やしてほしい"
+                className="w-full p-4 rounded-xl border border-white/15 bg-white/[0.02] text-white text-sm focus:outline-none focus:border-google-blue transition-colors placeholder-gray-600 resize-none leading-relaxed"
                 required
+                disabled={isLoading}
               />
-              <div className="flex flex-wrap gap-1.5 mt-2.5">
-                {['にっこり微笑んでいる', '満面の元気な笑顔', '冷静沈着で知的な微笑み', 'いたずらっぽいウインク'].map((ex) => (
-                  <button
-                    type="button"
-                    key={ex}
-                    onClick={() => setExpression(ex)}
-                    className="px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/10 text-[11px] text-gray-400 hover:text-gray-200 transition-colors border border-white/10 cursor-pointer"
-                  >
-                    {ex}
-                  </button>
-                ))}
+              <div className="mt-3">
+                <div className="text-[11px] text-gray-500 mb-2 font-mono">願い事のヒント:</div>
+                <div className="flex flex-col gap-1.5">
+                  {WISH_INSPIRATIONS.map((insp) => (
+                    <button
+                      type="button"
+                      key={insp}
+                      onClick={() => setWish(insp)}
+                      disabled={isLoading}
+                      className="min-h-[38px] text-left px-3.5 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-gray-400 hover:text-gray-200 transition-colors border border-white/10 cursor-pointer"
+                    >
+                      {insp}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-
-            {/* 3. 毛並み・質感 */}
-            <div className="py-6">
-              <div className="flex items-center justify-between mb-2">
-                <label htmlFor="field-hair" className="text-xs font-mono tracking-wider uppercase text-gray-300 font-semibold">
-                  3. 毛並み・質感
-                </label>
-                <span className="text-[11px] text-gray-500 font-sans">テクスチャ</span>
-              </div>
-              <input
-                id="field-hair"
-                type="text"
-                value={hairFeatures}
-                onChange={(e) => setHairFeatures(e.target.value)}
-                placeholder="例: 長毛で綿毛のように細かくふわふわした毛並み"
-                className="w-full h-12 px-4 rounded-full border border-white/15 bg-white/[0.02] text-white text-sm focus:outline-none focus:border-google-blue transition-colors placeholder-gray-600"
-                required
-              />
-            </div>
-
-            {/* 4. 体のシルエット */}
-            <div className="py-6">
-              <div className="flex items-center justify-between mb-2">
-                <label htmlFor="field-shape" className="text-xs font-mono tracking-wider uppercase text-gray-300 font-semibold">
-                  4. 体のシルエット
-                </label>
-                <span className="text-[11px] text-gray-500 font-sans">フォルム</span>
-              </div>
-              <input
-                id="field-shape"
-                type="text"
-                value={bodyShape}
-                onChange={(e) => setBodyShape(e.target.value)}
-                placeholder="例: 丸っこい2頭身でぽってりした形"
-                className="w-full h-12 px-4 rounded-full border border-white/15 bg-white/[0.02] text-white text-sm focus:outline-none focus:border-google-blue transition-colors placeholder-gray-600"
-                required
-              />
-            </div>
-
-            {/* 5. 体の特徴 */}
-            <div className="py-6">
-              <div className="flex items-center justify-between mb-2">
-                <label htmlFor="field-features" className="text-xs font-mono tracking-wider uppercase text-gray-300 font-semibold">
-                  5. 体の特徴
-                </label>
-                <span className="text-[11px] text-gray-500 font-sans">特徴</span>
-              </div>
-              <input
-                id="field-features"
-                type="text"
-                value={bodyFeatures}
-                onChange={(e) => setBodyFeatures(e.target.value)}
-                placeholder="例: 小さな手足、背中に小さな白い羽"
-                className="w-full h-12 px-4 rounded-full border border-white/15 bg-white/[0.02] text-white text-sm focus:outline-none focus:border-google-blue transition-colors placeholder-gray-600"
-                required
-              />
-            </div>
-
-            {/* 6. 口の特徴 */}
-            <div className="py-6">
-              <div className="flex items-center justify-between mb-2">
-                <label htmlFor="field-mouth" className="text-xs font-mono tracking-wider uppercase text-gray-300 font-semibold">
-                  6. 口の特徴
-                </label>
-                <span className="text-[11px] text-gray-500 font-sans">口元</span>
-              </div>
-              <input
-                id="field-mouth"
-                type="text"
-                value={mouthFeatures}
-                onChange={(e) => setMouthFeatures(e.target.value)}
-                placeholder="例: 小さく開いたかわいい口、ちょこんと出た小さな八重歯"
-                className="w-full h-12 px-4 rounded-full border border-white/15 bg-white/[0.02] text-white text-sm focus:outline-none focus:border-google-blue transition-colors placeholder-gray-600"
-                required
-              />
             </div>
           </div>
 
-          {/* 公式ガイドライン注記（フラットテキスト） */}
+          {/* 公式ガイドライン注記 */}
           <div className="py-4 text-[11px] text-gray-500 font-sans leading-relaxed">
             ※ 鼻を描かないこと（NO NOSE）、瞳孔中央の白い四芒星ハイライト、2頭身ぬいぐるみの公式黄金ルールが厳格に守られて生成されます。
           </div>
 
-          {/* 送信ボタン（「結果を見る」・IntroScreenと統一されたGoogle Blueピルボタン） */}
+          {/* 送信ボタン */}
           <div className="pt-6 pb-16">
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isLoading || !color.trim() || !wish.trim()}
               className="w-full h-14 rounded-full bg-google-blue hover:bg-google-blue-hover active:scale-[0.99] text-white font-semibold text-base shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span>結果を見る</span>
-              <ArrowRight className="w-4 h-4" />
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin text-white" />
+                  <span>{isAnalyzing ? '願い事を分析中...' : '生成中...'}</span>
+                </>
+              ) : (
+                <>
+                  <span>モッフィーを誕生させる</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </div>
         </form>
@@ -375,3 +226,4 @@ export const MoffyCustomizeScreen: React.FC<MoffyCustomizeScreenProps> = ({
 };
 
 export default MoffyCustomizeScreen;
+

@@ -202,6 +202,15 @@ export interface CreateMoffyParams {
   accessories?: string;
 }
 
+export interface ArchetypeDefault {
+  color: string;
+  expression: string;
+  hair_features: string;
+  body_shape: string;
+  body_features: string;
+  mouth_features: string;
+}
+
 export interface CreateMoffyResponse {
   status: string;
   image_url: string;
