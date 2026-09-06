@@ -237,5 +237,5 @@ export interface PartnerProfileResponse {
   google_id?: string | null;
 }
 
-export type GameStage = 'intro' | 'quiz' | 'customize' | 'generating' | 'result';
+export type GameStage = 'intro' | 'checking_auth' | 'quiz' | 'customize' | 'generating' | 'result';
 

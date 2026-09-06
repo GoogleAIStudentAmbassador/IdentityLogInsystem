@@ -1,3 +1,4 @@
+import { resolve } from 'path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -5,6 +6,14 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   base: './',
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(import.meta.dirname, 'index.html'),
+        oauth: resolve(import.meta.dirname, 'oauth.html'),
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     port: 3000,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type {
   GameStage,
   Archetype,
@@ -13,12 +13,7 @@ import { SHARD_PALETTES } from './types';
 import { generateProfileCardBlob } from './utils/cardGenerator';
 import {
   checkApiHealth,
-  registerUserProfile,
-  loginUser,
-  loginWithGoogle,
-  registerGoogleUser,
   extractMbtiFromUrl,
-  setStoredAuthToken,
   createMoffy,
   editMoffyImage,
   updateArrangedPhoto,
@@ -26,14 +21,13 @@ import {
   base64ToBlob,
   urlToBlob,
 } from './services/api';
+import { MoffyAuthClient } from './utils/oauthClient';
 import { Header } from './components/Header';
-import { IntroScreen } from './components/IntroScreen';
-import type { OnboardingData, GoogleOnboardingInfo } from './components/IntroScreen';
 import { QuizScreen } from './components/QuizScreen';
 import { MoffyCustomizeScreen } from './components/MoffyCustomizeScreen';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ResultScreen } from './components/ResultScreen';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 
 const USER_STORAGE_PREFIX = 'moffy_user_session_';
 
@@ -57,23 +51,23 @@ function loadUserSession(discordUserId: string): UserMoffySession | null {
 }
 
 export const App: React.FC = () => {
-  const [stage, setStage] = useState<GameStage>('intro');
+  // 認証ガード状態: 初期は checking_auth
+  const [stage, setStage] = useState<GameStage>('checking_auth');
   const [discordUserId, setDiscordUserId] = useState('');
   const [selectedArchetype, setSelectedArchetype] = useState<Archetype>(MBTI_ARCHETYPES.INTJ);
   const [cardDataUrl, setCardDataUrl] = useState<string>('');
   const [cardBlob, setCardBlob] = useState<Blob | null>(null);
   const [regResult, setRegResult] = useState<RegistrationResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [googleOnboardingInfo, setGoogleOnboardingInfo] = useState<GoogleOnboardingInfo | null>(null);
   const [apiStatus, setApiStatus] = useState<{
     authenticated: boolean;
     name: string;
     canCreate: boolean;
   } | null>(null);
 
-  // モッフィー未所持フラグ（未所持をデフォルトにし、前回の残留を防ぐ）
+  // モッフィー未所持フラグ
   const [hasMoffy, setHasMoffy] = useState<boolean>(false);
-  const [uploadedPhoto, setUploadedPhoto] = useState<File | Blob | null>(null);
+  const [uploadedPhoto] = useState<File | Blob | null>(null);
 
   // ノーマル（ベース）モッフィー画像URL & アクセサリー装備モッフィー画像URL
   const [normalMoffyImageUrl, setNormalMoffyImageUrl] = useState<string | null>(null);
@@ -95,99 +89,85 @@ export const App: React.FC = () => {
   // クイズ移行までは暗い背景を維持
   const [isDarkTheme, setIsDarkTheme] = useState(true);
   // ローディング画面のメッセージモード ('signin' | 'signup' | 'generating')
-  const [loadingMode, setLoadingMode] = useState<'signin' | 'signup' | 'generating'>('signup');
-  // 認証・登録処理中の連打防止フラグ
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const isSubmittingRef = useRef(isSubmitting);
-  useEffect(() => {
-    isSubmittingRef.current = isSubmitting;
-  }, [isSubmitting]);
+  const [loadingMode, setLoadingMode] = useState<'signin' | 'signup' | 'generating'>('generating');
 
   // 診断された4次元生スコア
   const [traitScores, setTraitScores] = useState<Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> | null>(null);
 
-  // 初期ロード時にAPIヘルスチェック
-  useEffect(() => {
-    checkApiHealth().then((status) => {
-      setApiStatus(status);
+  // OAuth 2.0 クライアントの初期化
+  const authClient = useMemo(() => {
+    return new MoffyAuthClient({
+      clientId: 'moffy-personality-quiz',
     });
   }, []);
 
-  // ======================================================================
-  // isDarkOpening: quiz/result 以前（intro, 初回loading）は暗い背景を維持
-  // ======================================================================
-  const isDarkOpening = isDarkTheme;
+  // 初期ロード時：OAuth認証ガード & セッション検証
+  useEffect(() => {
+    // 🌟 批判検証是正 B: コールバックハッシュの存在を物理的に検出し、認証失敗時の無限リダイレクトループを完全に遮断
+    const hasCallbackHash = typeof window !== 'undefined' && window.location.hash.includes('access_token');
+    authClient.handleCallback();
 
-  // ======================================================================
-  // Google連携のキャンセル（通常サインアップ/サインインへ復帰）
-  // ======================================================================
-  const handleCancelGoogleOnboarding = useCallback(() => {
-    setGoogleOnboardingInfo(null);
-    setErrorMsg(null);
-  }, []);
+    const initAuth = async () => {
+      // 2. 認証状態の確認
+      if (!authClient.isAuthenticated()) {
+        // コールバックハッシュが存在したにもかかわらず認証が不成立だった場合はループを遮断
+        if (hasCallbackHash) {
+          console.error('[Auth Guard] Callback processing failed or storage access denied. Halting redirect loop.');
+          setErrorMsg('認証トークンの検証に失敗したか、ブラウザのCookie/LocalStorageアクセスが無効化されています。プライベートブラウズ設定をご確認ください。');
+          try {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          } catch {
+            // ignore
+          }
+          return;
+        }
 
-  // ======================================================================
-  // Google連携ログイン押下時（既存ユーザーの即ログイン or 初回オンボーディング分岐）
-  // 🌟 批判検証是正 5: useCallback 化して無駄な再生成および IntroScreen GIS useEffect の暴走・リークを防止
-  // ======================================================================
-  const handleGoogleSignIn = useCallback(async (credential: string) => {
-    if (isSubmittingRef.current) return;
-    setIsSubmitting(true);
-    setErrorMsg(null);
-
-    try {
-      const res = await loginWithGoogle(credential);
-
-      if (res.needs_registration) {
-        // 初回連携：パスワード不要のオンボーディング案内へ
-        setGoogleOnboardingInfo({
-          tempToken: res.temp_token || '',
-          email: res.google_email || '',
-          name: res.google_name || '',
-        });
-        setIsSubmitting(false);
+        console.log('[Auth Guard] Unauthenticated access detected. Redirecting to OAuth hub...');
+        authClient.login();
         return;
       }
 
-      // 既存ユーザー：即座にログイン完了！
-      if (!res.user) {
-        throw new Error('ユーザー情報の取得に失敗しました');
+      // 3. APIヘルスチェック（非同期）
+      try {
+        const status = await checkApiHealth();
+        setApiStatus(status);
+      } catch {
+        // ignore
       }
 
-      const userData = res.user;
-      const resolvedUserId = userData.discord_user_id;
+      // 4. 認証済み: ユーザー情報・モッフィー保持状況の復元
+      const authUser = authClient.getUser();
+      if (!authUser || !authUser.discord_user_id) {
+        console.log('[Auth Guard] Invalid user in session. Redirecting to OAuth hub...');
+        authClient.login();
+        return;
+      }
+
+      const resolvedUserId = authUser.discord_user_id;
       setDiscordUserId(resolvedUserId);
 
-      // アカウント間残留防止のクリア
-      setSelectedArchetype(MBTI_ARCHETYPES.INTJ);
-      setTraitScores(null);
-      setCustomMoffyImageUrl(null);
-      setNormalMoffyImageUrl(null);
-      setEquippedMoffyImageUrl(null);
-      setCardDataUrl('');
-      setCardBlob(null);
-
       const userResult: RegistrationResult = {
-        discord_user_id: userData.discord_user_id,
-        photo_url: userData.photo_url || null,
-        default_photo_url: userData.default_photo_url || null,
-        arranged_photo_url: userData.arranged_photo_url || null,
-        grade: userData.grade || null,
-        university: userData.university || null,
-        is_staff: !!userData.is_staff,
-        created_at: userData.created_at,
-        updated_at: userData.updated_at,
-        google_id: userData.google_id || null,
+        discord_user_id: resolvedUserId,
+        photo_url: authUser.photo_url || null,
+        default_photo_url: authUser.default_photo_url || null,
+        arranged_photo_url: authUser.arranged_photo_url || null,
+        grade: authUser.grade || null,
+        university: authUser.university || null,
+        is_staff: !!authUser.is_staff,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        google_id: authUser.google_id || null,
       };
 
       const extractedMbti =
         extractMbtiFromUrl(userResult.arranged_photo_url) ||
         extractMbtiFromUrl(userResult.default_photo_url) ||
-        extractMbtiFromUrl(userResult.photo_url);
+        extractMbtiFromUrl(userResult.photo_url) ||
+        (authUser.mbti as MbtiType | null);
+
       if (extractedMbti) {
         userResult.mbti = extractedMbti;
       }
-
       setRegResult(userResult);
 
       const localSession = loadUserSession(resolvedUserId);
@@ -241,227 +221,56 @@ export const App: React.FC = () => {
           });
         }
 
-        setLoadingMode('signin');
-        setPipelineTitle('ログイン成功');
-        setPipelineMessage('モッフィーパートナーカードを展開中...');
-        setStage('generating');
-        setIsBursting(true);
-
-        setTimeout(() => {
-          setIsBursting(false);
-          setIsDarkTheme(true);
-          window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-          setStage('result');
-        }, 1500);
-        return;
-      }
-
-      setLoadingMode('signin');
-      setPipelineTitle('ログイン成功');
-      setPipelineMessage('性格診断ステージを準備しています...');
-      setStage('generating');
-      setIsBursting(true);
-
-      setTimeout(() => {
-        setIsBursting(false);
-        setIsDarkTheme(false);
-        setStage('quiz');
-      }, 1500);
-    } catch (err: unknown) {
-      console.error('Google login error:', err);
-      const message = err instanceof Error ? err.message : 'Googleログインに失敗しました';
-      setErrorMsg(message);
-      setStage('intro');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, []);
-
-  // ======================================================================
-  // IntroScreen から「続行する / サインインする / 登録完了」押下時
-  // ======================================================================
-  const handleIntroContinue = async (data: OnboardingData) => {
-    // 🌟 連打・多重実行ガード（409 Conflict 誘発を完全防止）
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-
-    // 🌟 前のアカウントの残留ステートを完全にクリアしてアカウント間分離を徹底
-    setSelectedArchetype(MBTI_ARCHETYPES.INTJ);
-    setTraitScores(null);
-    setCustomMoffyImageUrl(null);
-    setNormalMoffyImageUrl(null);
-    setEquippedMoffyImageUrl(null);
-    setCardDataUrl('');
-    setCardBlob(null);
-
-    setDiscordUserId(data.discordUserId);
-    setHasMoffy(data.hasMoffy);
-    setUploadedPhoto(data.uploadedPhoto);
-    setLoadingMode(data.authMode === 'google_onboarding' ? 'signup' : data.authMode);
-    setPipelineTitle('ロード中...');
-    setPipelineMessage('');
-    setStage('generating');
-    setErrorMsg(null);
-
-    try {
-      let result: RegistrationResult;
-
-      if (data.authMode === 'google_onboarding') {
-        // === Google初回連携アカウント登録 (POST /api/google/register) ===
-        if (!data.tempToken) {
-          throw new Error('Google認証トークンが見つかりません。もう一度Googleアカウント連携をお試しください。');
-        }
-
-        const registerRes = await registerGoogleUser({
-          temp_token: data.tempToken,
-          discord_user_id: data.discordUserId,
-          grade: data.grade,
-          university: data.university,
-          photo: data.uploadedPhoto,
-        });
-
-        if (!registerRes.user) {
-          throw new Error('ユーザー登録情報の取得に失敗しました');
-        }
-
-        result = {
-          discord_user_id: registerRes.user.discord_user_id,
-          photo_url: registerRes.user.photo_url || null,
-          default_photo_url: registerRes.user.default_photo_url || null,
-          arranged_photo_url: registerRes.user.arranged_photo_url || null,
-          grade: registerRes.user.grade || data.grade,
-          university: registerRes.user.university || data.university,
-          is_staff: !!registerRes.user.is_staff,
-          created_at: registerRes.user.created_at,
-          updated_at: registerRes.user.updated_at,
-          google_id: registerRes.user.google_id || null,
-        };
-
-        if (data.uploadedPhoto) {
-          const localUrl = URL.createObjectURL(data.uploadedPhoto);
-          setCustomMoffyImageUrl(localUrl);
-          setNormalMoffyImageUrl(localUrl);
-          setEquippedMoffyImageUrl(localUrl);
-        }
-      } else if (data.authMode === 'signin') {
-        // === サインイン処理：正規認証エンドポイント (POST /api/user/login) を実行 ===
-        const loginRes = await loginUser(data.discordUserId, data.password || '');
-        result = loginRes.user;
-
-        // 1. 同一ブラウザに保存されたアカウント固有のセッションを確認
-        const localSession = loadUserSession(data.discordUserId);
-        if (!result.grade && localSession?.grade) result.grade = localSession.grade;
-        if (!result.university && localSession?.university) result.university = localSession.university;
-
-        // 既存ユーザーのプロフィール写真（アレンジ画像を優先）
-        const arrangedPhoto = result.arranged_photo_url || localSession?.arrangedPhotoUrl || null;
-        const defaultPhoto = result.default_photo_url || result.photo_url || localSession?.defaultPhotoUrl || arrangedPhoto;
-        const existingPhoto = arrangedPhoto || defaultPhoto;
-
-        if (existingPhoto) {
-          setCustomMoffyImageUrl(existingPhoto);
-          setNormalMoffyImageUrl(defaultPhoto);
-          setEquippedMoffyImageUrl(arrangedPhoto || existingPhoto);
-        }
-
-        // 🌟 アレンジモッフィー（キーアイテム合成完了済み）が既に存在するなら、即座に復元して結果表示
-        const hasArrangedMoffy = !!(arrangedPhoto && arrangedPhoto.trim());
-        setHasMoffy(hasArrangedMoffy);
-
-        if (hasArrangedMoffy) {
-          setRegResult(result);
-
-          // MBTIタイプの復元優先度:
-          // 1. localSession の MBTI
-          // 2. result.mbti (API URL パラメータから復元)
-          // 3. デフォルト (INTJ)
-          const resolvedMbti = (localSession?.mbti || result.mbti || 'INTJ') as MbtiType;
-          const archetypeToUse = MBTI_ARCHETYPES[resolvedMbti] || MBTI_ARCHETYPES.INTJ;
-          setSelectedArchetype(archetypeToUse);
-
-          if (localSession?.traitScores) {
-            setTraitScores(localSession.traitScores);
-          }
-
-          // 🌟 パートナーカードの復元:
-          // ローカルストレージに cardDataUrl が保存されていれば、生成時の高品質カードを瞬時に復元！
-          if (localSession?.cardDataUrl) {
-            setCardDataUrl(localSession.cardDataUrl);
-            const restoredBlob = base64ToBlob(localSession.cardDataUrl);
-            setCardBlob(restoredBlob);
-          } else {
-            // 別端末などローカルに無い場合は、CORS安全ローダーを備えた generateProfileCardBlob で再生成
-            const { blob, dataUrl } = await generateProfileCardBlob(
-              archetypeToUse,
-              data.discordUserId,
-              arrangedPhoto
-            );
-            setCardBlob(blob);
-            setCardDataUrl(dataUrl);
-
-            // 次回復元のためにローカル保存
-            saveUserSession({
-              discordUserId: data.discordUserId,
-              mbti: archetypeToUse.mbtiCode,
-              cardDataUrl: dataUrl,
-              arrangedPhotoUrl: arrangedPhoto,
-              defaultPhotoUrl: defaultPhoto,
-              grade: result.grade,
-              university: result.university,
-              updatedAt: new Date().toISOString(),
-            });
-          }
-
+        if (hasCallbackHash) {
+          setLoadingMode('signin');
+          setPipelineTitle('ログイン成功');
+          setPipelineMessage('モッフィーパートナーカードを展開中...');
+          setStage('generating');
           setIsBursting(true);
+
           setTimeout(() => {
             setIsBursting(false);
             setIsDarkTheme(true);
             window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
             setStage('result');
-          }, 1500);
-          return;
+          }, 1200);
+        } else {
+          setIsDarkTheme(true);
+          window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+          setStage('result');
         }
-      } else {
-        // === サインアップ処理：新規ユーザーをバックエンドに登録 ===
-        result = await registerUserProfile(data.discordUserId, data.password || '', {
-          grade: data.grade,
-          university: data.university,
-          photoBlob: data.uploadedPhoto,
-        });
-
-        if (data.uploadedPhoto) {
-          const localUrl = URL.createObjectURL(data.uploadedPhoto);
-          setCustomMoffyImageUrl(localUrl);
-          setNormalMoffyImageUrl(localUrl);
-          setEquippedMoffyImageUrl(localUrl);
-        }
+        return;
       }
 
-      setRegResult(result);
+      // モッフィー未所持: クイズ画面へ遷移
+      if (hasCallbackHash) {
+        setLoadingMode('signin');
+        setPipelineTitle('認証完了');
+        setPipelineMessage('性格診断ステージを準備しています...');
+        setStage('generating');
+        setIsBursting(true);
 
-      // === 認証完了 → 星バースト演出 → quiz 遷移（白背景へ） ===
-      setIsBursting(true);
-
-      setTimeout(() => {
-        setIsBursting(false);
+        setTimeout(() => {
+          setIsBursting(false);
+          setIsDarkTheme(false);
+          setStage('quiz');
+        }, 1200);
+      } else {
         setIsDarkTheme(false);
         setStage('quiz');
-      }, 1500);
-    } catch (err: unknown) {
-      console.error('Authentication error:', err);
-      const message = err instanceof Error ? err.message : '認証処理中にエラーが発生しました';
-      setErrorMsg(message);
-      setStage('intro');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+      }
+    };
+
+    initAuth();
+  }, [authClient]);
+
+  const isDarkOpening = isDarkTheme;
 
   // ======================================================================
   // 性格診断終了 → 4次元集計 & 16タイプ判定
   // ======================================================================
   const handleQuizFinish = async (answers: Record<number, number>) => {
-    const traitScores: Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> = {
+    const scores: Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> = {
       E: 0, I: 0,
       S: 0, N: 0,
       T: 0, F: 0,
@@ -471,25 +280,23 @@ export const App: React.FC = () => {
     PERSONALITY_QUESTIONS.forEach((q) => {
       const score = answers[q.id] ?? 0;
       if (score > 0) {
-        traitScores[q.positive] += score;
+        scores[q.positive] += score;
       } else if (score < 0) {
-        traitScores[q.negative] += Math.abs(score);
+        scores[q.negative] += Math.abs(score);
       }
     });
 
-    const eOrI = traitScores.E >= traitScores.I ? 'E' : 'I';
-    const sOrN = traitScores.S >= traitScores.N ? 'S' : 'N';
-    const tOrF = traitScores.T >= traitScores.F ? 'T' : 'F';
-    const jOrP = traitScores.J >= traitScores.P ? 'J' : 'P';
+    const eOrI = scores.E >= scores.I ? 'E' : 'I';
+    const sOrN = scores.S >= scores.N ? 'S' : 'N';
+    const tOrF = scores.T >= scores.F ? 'T' : 'F';
+    const jOrP = scores.J >= scores.P ? 'J' : 'P';
 
     const calculatedMbti = `${eOrI}${sOrN}${tOrF}${jOrP}` as MbtiType;
     const targetArchetype = MBTI_ARCHETYPES[calculatedMbti] || MBTI_ARCHETYPES.INTJ;
 
-    setTraitScores(traitScores);
+    setTraitScores(scores);
     setSelectedArchetype(targetArchetype);
 
-    // モッフィー画像を持っていないユーザーの場合：
-    // エンドポイントの引数生成に必要な文字入力画面（MoffyCustomizeScreen）へ遷移！
     if (!hasMoffy) {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
       setIsDarkTheme(true);
@@ -497,8 +304,6 @@ export const App: React.FC = () => {
       return;
     }
 
-    // モッフィー画像をすでに所持している場合：
-    // そのままカード生成を行い、結果画面へ遷移
     const randomShard = SHARD_PALETTES[Math.floor(Math.random() * SHARD_PALETTES.length)];
     setChosenShard(randomShard);
     setIsLoadingEnding(false);
@@ -508,16 +313,7 @@ export const App: React.FC = () => {
     setStage('generating');
 
     try {
-      // ユーザーのモッフィー画像（アップロードしたBlobまたはサインイン時の画像）
       const photoToUse = uploadedPhoto || customMoffyImageUrl;
-      if (uploadedPhoto) {
-        const localUrl = URL.createObjectURL(uploadedPhoto);
-        setCustomMoffyImageUrl(localUrl);
-        setNormalMoffyImageUrl(localUrl);
-        setEquippedMoffyImageUrl(localUrl);
-      }
-
-      // Canvas上で16タイプ専用ステータスカードを動的生成（ユーザーのモッフィーを描画）
       const { blob, dataUrl } = await generateProfileCardBlob(
         targetArchetype,
         discordUserId,
@@ -526,11 +322,10 @@ export const App: React.FC = () => {
       setCardBlob(blob);
       setCardDataUrl(dataUrl);
 
-      // 🌟 アカウント固有のセッションを localStorage に保存！
       saveUserSession({
         discordUserId,
         mbti: targetArchetype.mbtiCode,
-        traitScores,
+        traitScores: scores,
         cardDataUrl: dataUrl,
         arrangedPhotoUrl: customMoffyImageUrl,
         defaultPhotoUrl: normalMoffyImageUrl,
@@ -539,7 +334,6 @@ export const App: React.FC = () => {
         updatedAt: new Date().toISOString(),
       });
 
-      // ロード終了・中央星収束アニメーションを開始（ワンカット長回し）
       setIsLoadingEnding(true);
     } catch (err: unknown) {
       console.error('Card generation failed:', err);
@@ -565,11 +359,10 @@ export const App: React.FC = () => {
     setErrorMsg(null);
 
     try {
-      // Step 1: 入力テキストをそのまま送信し、まずは普通のモッフィーを作成 (POST /api/v1/create_moffy)
       console.log('Step 1: Creating base Moffy with params:', params);
       const createRes = await createMoffy({
         ...params,
-        accessories: 'なし', // まず普通のモッフィーを作る
+        accessories: 'なし',
       });
       console.log('Step 1 complete:', createRes);
 
@@ -582,7 +375,6 @@ export const App: React.FC = () => {
       const baseMoffyLocalUrl = URL.createObjectURL(baseMoffyBlob);
       setNormalMoffyImageUrl(baseMoffyLocalUrl);
 
-      // Step 2: 初めに作った人格のアクセサリー（キーアイテム）とベースモッフィーを両方送信して生成 (POST /api/v1/edit_image)
       setPipelineMessage(`Step 2/2: アイテム「${selectedArchetype.luckyItem}」を合成中...`);
 
       const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
@@ -604,7 +396,6 @@ export const App: React.FC = () => {
       const editRes = await editMoffyImage(editPrompt, [baseMoffyBlob, itemBlob]);
       console.log('Step 2 complete:', editRes);
 
-      // 最終モッフィーの Blob オブジェクトを作成（base64またはURLから取得）
       let finalMoffyBlob: Blob;
       if (editRes.base64_data) {
         finalMoffyBlob = base64ToBlob(editRes.base64_data);
@@ -612,13 +403,10 @@ export const App: React.FC = () => {
         finalMoffyBlob = await urlToBlob(editRes.image_url);
       }
 
-      // ローカルBlob URLを作成（CORS汚染・遅延ゼロで水晶球体とCanvasに描画）
       const finalMoffyLocalUrl = URL.createObjectURL(finalMoffyBlob);
       setEquippedMoffyImageUrl(finalMoffyLocalUrl);
       setCustomMoffyImageUrl(finalMoffyLocalUrl);
 
-      // Step 3: バックエンドのプロフィール写真（1枚目デフォルト: createRes.image_url, 2枚目アレンジ: editRes.image_url）を更新
-      // 🌟 クエリパラメータに ?mbti=XXXX を付加して保存することでクラウド側でもMBTIを保持
       setPipelineMessage('プロフィール写真を更新中...');
       try {
         await updateProfilePhotos(discordUserId, {
@@ -628,7 +416,6 @@ export const App: React.FC = () => {
         });
       } catch (err) {
         console.warn('Could not update profile photos via /api/v1/profile/photo:', err);
-        // フォールバック: arranged_photo を個別更新
         try {
           await updateArrangedPhoto(discordUserId, editRes.image_url, selectedArchetype.mbtiCode);
         } catch (fallbackErr) {
@@ -636,7 +423,6 @@ export const App: React.FC = () => {
         }
       }
 
-      // Canvas上で公式パートナーカードを生成（finalMoffyBlobを直接渡すことでCORS汚染ゼロで確実に描画）
       const { blob, dataUrl } = await generateProfileCardBlob(
         selectedArchetype,
         discordUserId,
@@ -645,7 +431,6 @@ export const App: React.FC = () => {
       setCardBlob(blob);
       setCardDataUrl(dataUrl);
 
-      // 🌟 アカウント固有のセッションを localStorage に保存！
       saveUserSession({
         discordUserId,
         mbti: selectedArchetype.mbtiCode,
@@ -658,14 +443,12 @@ export const App: React.FC = () => {
         updatedAt: new Date().toISOString(),
       });
 
-      // ロード終了・中央星収束アニメーションを開始（ワンカット長回し）
       setIsLoadingEnding(true);
     } catch (err: unknown) {
       console.error('2-step Moffy generation error:', err);
       const msg = err instanceof Error ? err.message : 'モッフィーの生成中にエラーが発生しました';
       setErrorMsg(`${msg}（公式モッフィー画像でカードを生成します）`);
 
-      // フォールバック: 公式画像でカード生成して結果画面を表示
       try {
         const { blob, dataUrl } = await generateProfileCardBlob(selectedArchetype, discordUserId);
         setCardBlob(blob);
@@ -688,37 +471,9 @@ export const App: React.FC = () => {
     }
   };
 
-  // 完全リセット（別のアカウントでログイン / ログアウト）
+  // ログアウト（OAuth画面へリダイレクト）
   const handleReset = () => {
-    // 🌟 URLパラメータ (?discord_id=xxx 等) を完全にクリアして次ユーザーへの混入・残留を防止
-    if (typeof window !== 'undefined') {
-      const cleanUrl = window.location.origin + window.location.pathname;
-      window.history.replaceState({}, document.title, cleanUrl);
-    }
-    // 🌟 JWT認証トークンをセッションから破棄
-    setStoredAuthToken(null);
-
-    setStage('intro');
-    setIsDarkTheme(true);
-    setDiscordUserId('');
-    setSelectedArchetype(MBTI_ARCHETYPES.INTJ);
-    setCardDataUrl('');
-    setCardBlob(null);
-    setTraitScores(null);
-    setRegResult(null);
-    setErrorMsg(null);
-    setIsBursting(false);
-    setHasMoffy(false);
-    setUploadedPhoto(null);
-    setNormalMoffyImageUrl(null);
-    setEquippedMoffyImageUrl(null);
-    setCustomMoffyImageUrl(null);
-    setPipelineTitle('');
-    setPipelineMessage('');
-    setIsLoadingEnding(false);
-    setLoadingMode('signup');
-    setGoogleOnboardingInfo(null);
-    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    authClient.logout({ redirectToLogin: true });
   };
 
   // このアカウントで性格診断をやり直す
@@ -730,7 +485,6 @@ export const App: React.FC = () => {
     setErrorMsg(null);
     setIsBursting(false);
     setHasMoffy(false);
-    setUploadedPhoto(null);
     setNormalMoffyImageUrl(null);
     setEquippedMoffyImageUrl(null);
     setCustomMoffyImageUrl(null);
@@ -747,18 +501,15 @@ export const App: React.FC = () => {
           : 'bg-white text-gray-900 selection:bg-blue-100 selection:text-blue-600'
       }`}
     >
-      {/* ===== 星バースト演出オーバーレイ（アカウント作成成功後） ===== */}
+      {/* ===== 星バースト演出オーバーレイ ===== */}
       {isBursting && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none">
-          {/* 背景ホワイトフラッシュ */}
           <div
             className="absolute inset-0 bg-white"
             style={{
               animation: 'burstFlash 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
             }}
           />
-
-          {/* 中央の星バースト */}
           <div className="animate-star-burst">
             <svg
               viewBox="0 0 100 100"
@@ -792,16 +543,13 @@ export const App: React.FC = () => {
       )}
 
       {/* メインコンテンツ */}
-      <main className={`flex-1 flex flex-col ${stage === 'intro' ? 'justify-center' : ''}`}>
-        {stage === 'intro' && (
-          <IntroScreen
-            onContinue={handleIntroContinue}
-            onGoogleSignIn={handleGoogleSignIn}
-            onCancelGoogleOnboarding={handleCancelGoogleOnboarding}
-            googleOnboardingInfo={googleOnboardingInfo}
-            initialId={discordUserId}
-            isSubmitting={isSubmitting}
-          />
+      <main className="flex-1 flex flex-col">
+        {/* 認証チェック中スピナー */}
+        {stage === 'checking_auth' && (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-white">
+            <Loader2 className="w-10 h-10 text-google-blue animate-spin mb-4" />
+            <p className="text-sm font-medium text-gray-300">ログイン状態を確認中...</p>
+          </div>
         )}
 
         {stage === 'generating' && (
