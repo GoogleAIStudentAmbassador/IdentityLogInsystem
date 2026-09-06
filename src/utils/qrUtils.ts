@@ -123,15 +123,51 @@ export async function generateMoffyQrDataUrl(text: string, moffyImageUrl?: strin
 
 
 /**
- * 自分のアンバサダープロフィールからQRコード用のペイロード文字列を生成します。
+ * 自分のアンバサダープロフィールから公開Webページ (share.html) のURLを生成します。
+ * スマートフォンのカメラ等でスキャンした際、直接ブラウザで公開Webページを開けます。
+ */
+export function createPassportShareUrl(passport: Omit<QrPassportData, 'type' | 'timestamp'>): string {
+  const isBrowser = typeof window !== 'undefined' && !!window.location;
+  let baseUrl = '';
+  if (isBrowser) {
+    const origin = window.location.origin;
+    const pathname = window.location.pathname.replace(/[^/]*$/, '');
+    baseUrl = `${origin}${pathname}share.html`;
+  } else {
+    baseUrl = './share.html';
+  }
+
+  const url = new URL(baseUrl, isBrowser ? window.location.href : 'https://moffy-ambassador.local/');
+  url.searchParams.set('id', passport.id);
+  if (passport.mbti) url.searchParams.set('mbti', passport.mbti);
+  if (passport.nickname) url.searchParams.set('nick', passport.nickname);
+  if (passport.name) url.searchParams.set('name', passport.name);
+  if (passport.lastName) url.searchParams.set('last_name', passport.lastName);
+  if (passport.firstName) url.searchParams.set('first_name', passport.firstName);
+  if (passport.university) url.searchParams.set('univ', passport.university);
+  if (passport.grade) url.searchParams.set('grade', passport.grade);
+  if (passport.photoUrl) url.searchParams.set('photo', passport.photoUrl);
+  if (passport.birthday) url.searchParams.set('bday', passport.birthday);
+  if (passport.showBirthday !== undefined) url.searchParams.set('showBday', passport.showBirthday ? '1' : '0');
+
+  // SNSリンクを安全にコンパクトエンコード
+  if (passport.snsLinks && passport.snsLinks.length > 0) {
+    try {
+      const minimalSns = passport.snsLinks.map((s) => ({ p: s.platform, v: s.value }));
+      url.searchParams.set('sns', JSON.stringify(minimalSns));
+    } catch {
+      // ignore
+    }
+  }
+
+  return url.toString();
+}
+
+/**
+ * QRコード用のペイロード文字列を生成します（公開Webページの完全URL）。
  */
 export function createPassportQrPayload(passport: Omit<QrPassportData, 'type' | 'timestamp'>): string {
-  const payload: QrPassportData = {
-    type: 'moffy_passport',
-    ...passport,
-    timestamp: Date.now(),
-  };
-  return JSON.stringify(payload);
+  return createPassportShareUrl(passport);
 }
 
 export interface ParsedPassport {
@@ -144,6 +180,9 @@ export interface ParsedPassport {
   university: string;
   grade: string;
   photoUrl?: string | null;
+  birthday?: string | null;
+  showBirthday?: boolean;
+  snsLinks?: { platform: string; value: string }[];
 }
 
 /**
@@ -171,23 +210,42 @@ export function parsePassportQrPayload(text: string): ParsedPassport | null {
     // JSON形式でない場合（例: Discord ID文字列単体、またはURLパラメータ）
   }
 
-  // フォールバック: 単純な文字列や discord_id=... パラメータの場合
+  // フォールバック: URLパラメータ（share.html?id=...等）または直接文字列の場合
   try {
     if (text.startsWith('http://') || text.startsWith('https://')) {
       const url = new URL(text);
-      const discordId = url.searchParams.get('discord_id') || url.searchParams.get('user_id');
-      const mbti = url.searchParams.get('mbti');
+      const discordId = url.searchParams.get('id') || url.searchParams.get('discord_id') || url.searchParams.get('user_id');
+      const mbti = url.searchParams.get('mbti') || 'INTJ';
       if (discordId) {
+        let parsedSns: { platform: string; value: string }[] | undefined;
+        const snsRaw = url.searchParams.get('sns');
+        if (snsRaw) {
+          try {
+            const rawArray = JSON.parse(snsRaw);
+            if (Array.isArray(rawArray)) {
+              parsedSns = rawArray.map((item: any) => ({
+                platform: item.p || item.platform || 'website',
+                value: item.v || item.value || '',
+              }));
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         return {
           id: discordId,
           name: url.searchParams.get('name') || undefined,
           lastName: url.searchParams.get('last_name') || undefined,
           firstName: url.searchParams.get('first_name') || undefined,
-          nickname: url.searchParams.get('nickname') || undefined,
+          nickname: url.searchParams.get('nick') || url.searchParams.get('nickname') || undefined,
           mbti: (mbti as any) || 'INTJ',
-          university: url.searchParams.get('university') || '未設定',
+          university: url.searchParams.get('univ') || url.searchParams.get('university') || '未設定',
           grade: url.searchParams.get('grade') || 'B1',
-          photoUrl: url.searchParams.get('photo_url') || null,
+          photoUrl: url.searchParams.get('photo') || url.searchParams.get('photo_url') || null,
+          birthday: url.searchParams.get('bday') || null,
+          showBirthday: url.searchParams.get('showBday') === '1',
+          snsLinks: parsedSns,
         };
       }
     } else if (/^[a-zA-Z0-9_.#-]{2,64}$/.test(text.trim())) {

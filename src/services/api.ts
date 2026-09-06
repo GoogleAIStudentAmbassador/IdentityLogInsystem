@@ -11,6 +11,9 @@ import type {
   AuthConfigResponse,
   GoogleLoginResponse,
   GoogleRegisterPayload,
+  FriendItem,
+  FriendProgressData,
+  PersonalityQuizProgressData,
 } from '../types';
 import { ARCHETYPE_DEFAULTS } from '../data/personalityQuestions';
 
@@ -869,6 +872,273 @@ export async function analyzeMoffyWishWithGemini(params: {
   } catch (err) {
     console.warn('[analyzeMoffyWishWithGemini] Analysis failed or parse error, fallback to defaults:', err);
     return fallbackParams;
+  }
+}
+
+// ======================================================================
+// ゲーム進捗 (Game Progress) & クラウドDB永続化 API
+// ======================================================================
+
+const GAME_STORAGE_PREFIX = 'moffy_game_progress_';
+
+/**
+ * アカウントごとのゲーム進捗（スキーマレスJSON）を保存します。
+ * クラウドAPIとローカルストレージのハイブリッド永続化を行います。
+ */
+export async function saveGameProgress(
+  gameId: string,
+  discordUserId: string,
+  data: any
+): Promise<boolean> {
+  if (!gameId || !discordUserId) return false;
+
+  // 1. ローカルストレージへ即時同期（オフライン・フェイルセーフ対応）
+  try {
+    const localKey = `${GAME_STORAGE_PREFIX}${gameId}_${discordUserId}`;
+    localStorage.setItem(localKey, JSON.stringify(data));
+  } catch (e) {
+    console.warn('[saveGameProgress] LocalStorage save failed:', e);
+  }
+
+  // 2. クラウドDB (API) へ送信
+  const baseUrl = getApiBaseUrl();
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    console.warn('[saveGameProgress] API key is missing. Kept in local storage only.');
+    return true;
+  }
+
+  try {
+    const formData = new FormData();
+    formData.append('discord_user_id', discordUserId);
+    formData.append('progress_data', JSON.stringify(data));
+
+    const res = await fetch(`${baseUrl}/api/v1/games/${encodeURIComponent(gameId)}/progress`, {
+      method: 'POST',
+      headers: {
+        'X-API-Key': apiKey,
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.warn(`[saveGameProgress] Server responded ${res.status}:`, errText);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[saveGameProgress] Network error, progress preserved locally:', err);
+    return true;
+  }
+}
+
+/**
+ * アカウントごとのゲーム進捗を取得します。
+ * クラウドDBから取得を試み、失敗時はローカルキャッシュを返します。
+ */
+export async function getGameProgress<T = any>(
+  gameId: string,
+  discordUserId: string
+): Promise<T | null> {
+  if (!gameId || !discordUserId) return null;
+
+  const baseUrl = getApiBaseUrl();
+  const apiKey = getApiKey();
+
+  if (apiKey) {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/v1/games/${encodeURIComponent(gameId)}/progress?discord_user_id=${encodeURIComponent(discordUserId)}`,
+        {
+          headers: {
+            'X-API-Key': apiKey,
+          },
+        }
+      );
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.data) {
+          // ローカルキャッシュも同期更新
+          try {
+            const localKey = `${GAME_STORAGE_PREFIX}${gameId}_${discordUserId}`;
+            localStorage.setItem(localKey, JSON.stringify(json.data));
+          } catch {
+            // ignore
+          }
+          return json.data as T;
+        }
+      }
+    } catch (err) {
+      console.warn('[getGameProgress] Network error, trying local storage:', err);
+    }
+  }
+
+  // フォールバック: ローカルストレージから復元
+  try {
+    const localKey = `${GAME_STORAGE_PREFIX}${gameId}_${discordUserId}`;
+    const cached = localStorage.getItem(localKey);
+    if (cached) {
+      return JSON.parse(cached) as T;
+    }
+  } catch (e) {
+    console.warn('[getGameProgress] Failed to read from local storage:', e);
+  }
+
+  return null;
+}
+
+// ======================================================================
+// 性格診断 途中保存・再開ロジック
+// ======================================================================
+
+const PERSONALITY_QUIZ_GAME_ID = 'personality_quiz';
+
+export async function savePersonalityQuizProgress(
+  discordUserId: string,
+  answers: Record<number, number>,
+  revealedCount: number
+): Promise<boolean> {
+  const payload: PersonalityQuizProgressData = {
+    answers,
+    revealedCount,
+    currentStep: 'quiz',
+    updatedAt: new Date().toISOString(),
+  };
+  return saveGameProgress(PERSONALITY_QUIZ_GAME_ID, discordUserId, payload);
+}
+
+export async function getPersonalityQuizProgress(
+  discordUserId: string
+): Promise<PersonalityQuizProgressData | null> {
+  return getGameProgress<PersonalityQuizProgressData>(PERSONALITY_QUIZ_GAME_ID, discordUserId);
+}
+
+export async function clearPersonalityQuizProgress(discordUserId: string): Promise<void> {
+  try {
+    const localKey = `${GAME_STORAGE_PREFIX}${PERSONALITY_QUIZ_GAME_ID}_${discordUserId}`;
+    localStorage.removeItem(localKey);
+  } catch {
+    // ignore
+  }
+}
+
+// ======================================================================
+// フレンド関係 (Moffy Friends) 永続化 & 検索ロジック
+// ※【重要】フォロー数・フォロワー数はUIに一切表示してはなりません。
+// ======================================================================
+
+const MOFFY_FRIENDS_GAME_ID = 'moffy_friends';
+
+export async function getFriendProgress(discordUserId: string): Promise<FriendProgressData> {
+  const defaultData: FriendProgressData = {
+    friends: [],
+    following: [],
+    followers: [],
+    updatedAt: new Date().toISOString(),
+  };
+
+  const fetched = await getGameProgress<FriendProgressData>(MOFFY_FRIENDS_GAME_ID, discordUserId);
+  if (!fetched || !Array.isArray(fetched.friends)) {
+    return defaultData;
+  }
+  return {
+    friends: fetched.friends || [],
+    following: Array.isArray(fetched.following) ? fetched.following : [],
+    followers: Array.isArray(fetched.followers) ? fetched.followers : [],
+    updatedAt: fetched.updatedAt || new Date().toISOString(),
+  };
+}
+
+export async function getFriendList(discordUserId: string): Promise<FriendItem[]> {
+  const data = await getFriendProgress(discordUserId);
+  return data.friends;
+}
+
+/**
+ * フレンドを追加し、DBに永続化します。
+ */
+export async function addFriend(
+  myDiscordUserId: string,
+  friend: FriendItem
+): Promise<boolean> {
+  if (!myDiscordUserId || !friend || !friend.discord_user_id) return false;
+  if (myDiscordUserId === friend.discord_user_id) return false; // 自分自身は追加しない
+
+  const current = await getFriendProgress(myDiscordUserId);
+  const existingIdx = current.friends.findIndex(
+    (f) => f.discord_user_id === friend.discord_user_id
+  );
+
+  const updatedFriend: FriendItem = {
+    ...friend,
+    addedAt: friend.addedAt || new Date().toISOString(),
+  };
+
+  let newFriends: FriendItem[];
+  if (existingIdx >= 0) {
+    newFriends = [...current.friends];
+    newFriends[existingIdx] = updatedFriend;
+  } else {
+    newFriends = [updatedFriend, ...current.friends];
+  }
+
+  const newFollowing = Array.from(
+    new Set([...current.following, friend.discord_user_id])
+  );
+
+  const updatedData: FriendProgressData = {
+    ...current,
+    friends: newFriends,
+    following: newFollowing,
+    updatedAt: new Date().toISOString(),
+  };
+
+  return saveGameProgress(MOFFY_FRIENDS_GAME_ID, myDiscordUserId, updatedData);
+}
+
+/**
+ * フォロー数を内部集計（※画面UIには表示禁止）
+ */
+export async function getFollowingCount(discordUserId: string): Promise<number> {
+  const data = await getFriendProgress(discordUserId);
+  return data.following.length;
+}
+
+/**
+ * フォロワー数を内部集計（※画面UIには表示禁止）
+ */
+export async function getFollowersCount(discordUserId: string): Promise<number> {
+  const data = await getFriendProgress(discordUserId);
+  return data.followers.length;
+}
+
+// ======================================================================
+// 公開プロフィール取得 API
+// ======================================================================
+
+export async function getPublicProfile(discordUserId: string): Promise<PartnerProfileResponse | null> {
+  if (!discordUserId) return null;
+  const baseUrl = getApiBaseUrl();
+  const apiKey = getApiKey();
+
+  try {
+    const res = await fetch(
+      `${baseUrl}/api/v1/getProfile?discord_user_id=${encodeURIComponent(discordUserId)}`,
+      {
+        headers: apiKey ? { 'X-API-Key': apiKey } : {},
+      }
+    );
+
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json();
+    return data as PartnerProfileResponse;
+  } catch (err) {
+    console.warn('[getPublicProfile] Fetch failed:', err);
+    return null;
   }
 }
 

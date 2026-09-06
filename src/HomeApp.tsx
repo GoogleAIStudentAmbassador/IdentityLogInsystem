@@ -6,6 +6,7 @@ import type { UserMoffySession } from './types';
 import { PassportTab } from './components/home/PassportTab';
 import { FriendExchangeTab } from './components/home/FriendExchangeTab';
 import { ProfileTab } from './components/home/ProfileTab';
+import { FriendsTab } from './components/home/FriendsTab';
 import { FloatingBottomNav } from './components/home/FloatingBottomNav';
 import type { MainTab } from './components/home/FloatingBottomNav';
 
@@ -204,6 +205,14 @@ export const HomeApp: React.FC = () => {
             onBackToQuiz={handleBackToQuiz}
             isDarkMode={isDarkMode}
             onUpdateSession={handleUpdateSession}
+          />
+        )}
+        {activeTab === 'friends' && (
+          <FriendsTab
+            user={user}
+            session={session}
+            isDarkMode={isDarkMode}
+            onGoToExchange={() => setActiveTab('exchange')}
           />
         )}
       </main>

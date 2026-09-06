@@ -4,6 +4,7 @@ import type { AuthUser } from '../../utils/oauthClient';
 import type { UserMoffySession, MbtiType, SnsLinkItem, SnsPlatform } from '../../types';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
 import { SNS_PLATFORMS, detectPlatformFromUrl, sanitizeTextInput } from '../../utils/snsUtils';
+import { saveGameProgress } from '../../services/api';
 
 interface ProfileTabProps {
   user: AuthUser | null;
@@ -48,6 +49,9 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const [nickname, setNickname] = useState<string>(() => user?.nickname || session?.nickname || '');
   const [university, setUniversity] = useState<string>(() => user?.university || session?.university || '');
   const [grade, setGrade] = useState<string>(() => user?.grade || session?.grade || 'B1');
+  // 誕生日（デフォルト非表示）
+  const [birthday, setBirthday] = useState<string>(() => session?.birthday || '');
+  const [showBirthday, setShowBirthday] = useState<boolean>(() => session?.showBirthday ?? false);
 
   // SNSリンク一覧ステート
   const [snsLinks, setSnsLinks] = useState<SnsLinkItem[]>(() => {
@@ -124,6 +128,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       }))
       .filter((item) => item.value.length > 0);
 
+    const cleanBirthday = birthday ? sanitizeTextInput(birthday, 20) : '';
+
     const updatedSession: UserMoffySession = {
       ...(session || {
         discordUserId: discordId,
@@ -139,6 +145,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       university: cleanUniversity,
       grade: cleanGrade,
       snsLinks: cleanSnsLinks,
+      birthday: cleanBirthday,
+      showBirthday,
       updatedAt: new Date().toISOString(),
     };
 
@@ -148,6 +156,17 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       localStorage.setItem(storageKey, JSON.stringify(updatedSession));
     } catch (err) {
       console.warn('Failed to save user session to localStorage:', err);
+    }
+
+    // 1-b. クラウドDB (API) の進捗にも保存
+    if (discordId) {
+      saveGameProgress('moffy_profile_ext', discordId, {
+        birthday: cleanBirthday,
+        showBirthday,
+        snsLinks: cleanSnsLinks,
+      }).catch((err) => {
+        console.warn('Failed to sync profile ext to cloud:', err);
+      });
     }
 
     // 2. MoffyAuthClient のセッションにも反映
@@ -368,6 +387,36 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
               </option>
             )}
           </select>
+        </div>
+
+        {/* 誕生日設定（デフォルト非表示） */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className={`block font-medium ${isDarkMode ? 'text-neutral-300' : 'text-neutral-700'}`}>
+              誕生日
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showBirthday}
+                onChange={(e) => setShowBirthday(e.target.checked)}
+                className="rounded border-neutral-400 text-google-blue focus:ring-0 cursor-pointer"
+              />
+              <span className={`text-[11px] ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>
+                公開ページに表示 (デフォルト非公開)
+              </span>
+            </label>
+          </div>
+          <input
+            type="date"
+            value={birthday}
+            onChange={(e) => setBirthday(e.target.value)}
+            className={`w-full min-h-[40px] px-3 rounded-xl border text-xs transition outline-none ${
+              isDarkMode
+                ? 'border-neutral-700 bg-neutral-950 text-neutral-100 focus:border-[#4285f4]'
+                : 'border-neutral-200 bg-neutral-50 text-neutral-900 focus:border-[#4285f4]'
+            }`}
+          />
         </div>
 
         {/* 固定メタデータ（Discord ID & パートナーモッフィー） */}

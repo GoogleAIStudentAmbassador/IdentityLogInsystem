@@ -7,6 +7,9 @@ interface QuizScreenProps {
   questions: LikertQuestion[];
   onFinish: (answers: Record<number, number>) => void;
   onDarknessChange?: (isDark: boolean) => void;
+  initialAnswers?: Record<number, number>;
+  initialRevealedCount?: number;
+  onProgressChange?: (answers: Record<number, number>, revealedCount: number) => void;
 }
 
 // 5段階の選択肢定義 (+2: 当てはまる(赤) 〜 0: 中立(青) 〜 -2: 当てはまらない(黄))
@@ -53,10 +56,26 @@ const LIKERT_OPTIONS = [
     inactiveDark: 'border-[2.5px] border-[#fbbc04] hover:bg-yellow-950/40 text-[#fbbc04]',
   },
 ];
-export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onDarknessChange }) => {
-  const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [touched, setTouched] = useState<Set<number>>(new Set());
-  const [revealedCount, setRevealedCount] = useState(1);
+export const QuizScreen: React.FC<QuizScreenProps> = ({
+  questions,
+  onFinish,
+  onDarknessChange,
+  initialAnswers,
+  initialRevealedCount,
+  onProgressChange,
+}) => {
+  const [answers, setAnswers] = useState<Record<number, number>>(() => initialAnswers || {});
+  const [touched, setTouched] = useState<Set<number>>(() => {
+    if (initialAnswers) {
+      return new Set(Object.keys(initialAnswers).map(Number));
+    }
+    return new Set();
+  });
+  const [revealedCount, setRevealedCount] = useState<number>(() => {
+    const fromCount = initialRevealedCount || 1;
+    const answeredCount = initialAnswers ? Object.keys(initialAnswers).length : 0;
+    return Math.min(questions.length, Math.max(1, fromCount, answeredCount + 1));
+  });
   const [scrollY, setScrollY] = useState(0);
   const [answerPulse, setAnswerPulse] = useState(0);
   const [showQuickConfirm, setShowQuickConfirm] = useState(false);
@@ -117,11 +136,13 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
   }, [revealedCount]);
 
   const handleSelectScore = (questionId: number, score: number, index: number) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: score }));
+    const nextAnswers = { ...answers, [questionId]: score };
+    setAnswers(nextAnswers);
 
     // 🌟 回答した瞬間に中央の星へ推進パルスを発火（下へ移動したかのような残像を生成）
     setAnswerPulse((prev) => prev + 1);
 
+    let nextRevealed = revealedCount;
     if (!touched.has(questionId)) {
       setTouched((prev) => {
         const newSet = new Set(prev);
@@ -131,9 +152,12 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ questions, onFinish, onD
 
       // 次の質問を開放
       if (index + 1 === revealedCount && revealedCount < totalQ) {
-        setRevealedCount((prev) => prev + 1);
+        nextRevealed = revealedCount + 1;
+        setRevealedCount(nextRevealed);
       }
     }
+
+    onProgressChange?.(nextAnswers, nextRevealed);
   };
 
   const handleFinish = () => {

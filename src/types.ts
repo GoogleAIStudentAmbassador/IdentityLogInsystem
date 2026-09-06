@@ -212,6 +212,38 @@ export interface UserMoffySession {
   university?: string | null;
   preferredStyle?: 'normal' | 'equipped';
   snsLinks?: SnsLinkItem[];
+  birthday?: string;
+  showBirthday?: boolean;
+  updatedAt: string;
+}
+
+export interface FriendItem {
+  discord_user_id: string;
+  name?: string | null;
+  lastName?: string | null;
+  firstName?: string | null;
+  nickname?: string | null;
+  mbti: MbtiType;
+  photoUrl?: string | null;
+  university?: string | null;
+  grade?: string | null;
+  birthday?: string | null;
+  showBirthday?: boolean;
+  snsLinks?: SnsLinkItem[];
+  addedAt: string;
+}
+
+export interface FriendProgressData {
+  friends: FriendItem[];
+  following: string[];
+  followers: string[];
+  updatedAt: string;
+}
+
+export interface PersonalityQuizProgressData {
+  answers: Record<number, number>;
+  revealedCount: number;
+  currentStep?: string;
   updatedAt: string;
 }
 
@@ -269,9 +301,15 @@ export interface EditImageResponse {
 
 export interface PartnerProfileResponse {
   discord_user_id: string;
+  name?: string | null;
+  nickname?: string | null;
+  display_name?: string | null;
   photo_url: string;
   default_photo_url: string;
   arranged_photo_url?: string | null;
+  grade?: string | null;
+  university?: string | null;
+  is_staff?: boolean;
   created_at: string;
   updated_at: string;
   google_id?: string | null;
@@ -290,6 +328,9 @@ export interface QrPassportData {
   university: string;
   grade: string;
   photoUrl?: string;
+  birthday?: string;
+  showBirthday?: boolean;
+  snsLinks?: SnsLinkItem[];
   timestamp: number;
 }
 

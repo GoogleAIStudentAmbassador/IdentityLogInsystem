@@ -1,7 +1,7 @@
 import React from 'react';
-import { Home, User } from 'lucide-react';
+import { Home, User, Users } from 'lucide-react';
 
-export type MainTab = 'home' | 'exchange' | 'profile';
+export type MainTab = 'home' | 'exchange' | 'profile' | 'friends';
 
 interface FloatingBottomNavProps {
   activeTab: MainTab;
@@ -93,6 +93,24 @@ export const FloatingBottomNav: React.FC<FloatingBottomNavProps> = ({
               <User className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
             )}
           </div>
+        </button>
+
+        {/* 4. フレンド一覧（プロフィールの右隣・フレンドロゴ Users・アイコンのみ） */}
+        <button
+          onClick={() => onChangeTab('friends')}
+          className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+            activeTab === 'friends'
+              ? isDarkMode
+                ? 'bg-neutral-800 text-white shadow-xs'
+                : 'bg-neutral-100 text-neutral-900 shadow-xs'
+              : isDarkMode
+                ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40'
+                : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100/60'
+          }`}
+          aria-label="フレンド一覧"
+          title="フレンド一覧"
+        >
+          <Users className="w-5 h-5" />
         </button>
       </nav>
     </div>

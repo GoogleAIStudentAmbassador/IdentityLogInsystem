@@ -1,4 +1,4 @@
-﻿import type { SnsPlatform } from '../types';
+import type { SnsPlatform } from '../types';
 
 export const SNS_PLATFORMS: { value: SnsPlatform; label: string }[] = [
   { value: 'x', label: 'X (Twitter)' },
@@ -54,4 +54,57 @@ export function detectPlatformFromUrl(input: string): SnsPlatform | null {
   if (lower.includes('bsky.app')) return 'bluesky';
   if (/^https?:\/\//.test(lower)) return 'website';
   return null;
+}
+
+/**
+ * SNS値（URLまたはユーザー名）から安全な外部リンクURLを生成
+ * 不正スキーム（javascript:等）は完全遮断
+ */
+export function resolveSnsUrl(platform: SnsPlatform, rawValue: string): string | null {
+  if (!rawValue || typeof rawValue !== 'string') return null;
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+
+  // 危険なスキームを遮断
+  if (/^(javascript|data|vbscript):/i.test(trimmed)) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  const cleanUser = trimmed.replace(/^@/, '');
+
+  switch (platform) {
+    case 'x':
+      return `https://x.com/${cleanUser}`;
+    case 'instagram':
+      return `https://instagram.com/${cleanUser}`;
+    case 'github':
+      return `https://github.com/${cleanUser}`;
+    case 'linkedin':
+      return `https://www.linkedin.com/in/${cleanUser}`;
+    case 'discord':
+      return `https://discord.com/users/${cleanUser}`;
+    case 'youtube':
+      return `https://youtube.com/@${cleanUser}`;
+    case 'tiktok':
+      return `https://tiktok.com/@${cleanUser}`;
+    case 'threads':
+      return `https://threads.net/@${cleanUser}`;
+    case 'facebook':
+      return `https://facebook.com/${cleanUser}`;
+    case 'note':
+      return `https://note.com/${cleanUser}`;
+    case 'qiita':
+      return `https://qiita.com/${cleanUser}`;
+    case 'zenn':
+      return `https://zenn.dev/${cleanUser}`;
+    case 'bluesky':
+      return `https://bsky.app/profile/${cleanUser}`;
+    case 'website':
+    default:
+      return `https://${trimmed}`;
+  }
 }

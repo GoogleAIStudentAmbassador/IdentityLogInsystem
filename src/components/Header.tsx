@@ -1,4 +1,5 @@
 import React from 'react';
+import { LogOut } from 'lucide-react';
 
 interface HeaderProps {
   apiStatus: {
@@ -7,27 +8,34 @@ interface HeaderProps {
     canCreate: boolean;
   } | null;
   isDark?: boolean;
+  onLogout?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ apiStatus, isDark = false }) => {
+export const Header: React.FC<HeaderProps> = ({ apiStatus, isDark = false, onLogout }) => {
   return (
     <header className={`w-full sticky top-0 z-40 transition-colors duration-700 ${
       isDark ? 'bg-transparent border-transparent' : 'bg-white/90 backdrop-blur-sm border-b border-gray-100'
     }`}>
       <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-        {/* 左側：控えめなGoogle AIブランディング */}
-        <div className="flex items-center gap-2">
-          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-colors duration-700 ${
-            isDark ? 'bg-white/10 text-white' : 'bg-blue-50 text-google-blue font-bold'
-          }`}>
-            <span>G</span>
-          </div>
-          <span className={`text-xs font-medium tracking-tight transition-colors duration-700 ${
-            isDark ? 'text-gray-400' : 'text-gray-500'
-          }`}>
-            Google AI
-          </span>
-        </div>
+        {/* 左側：性格診断中のログアウトボタン */}
+        {onLogout ? (
+          <button
+            type="button"
+            onClick={onLogout}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition cursor-pointer border ${
+              isDark
+                ? 'border-white/15 bg-white/10 text-neutral-200 hover:bg-white/20 hover:text-white'
+                : 'border-neutral-200 bg-neutral-100 text-neutral-700 hover:bg-neutral-200 hover:text-neutral-900'
+            }`}
+            title="途中経過を保存してログアウト"
+            aria-label="ログアウト"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>ログアウト</span>
+          </button>
+        ) : (
+          <div className="w-6 h-6" />
+        )}
 
         {/* 右側：認知負荷のない極小ステータス */}
         <div className="flex items-center">

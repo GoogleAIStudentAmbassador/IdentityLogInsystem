@@ -20,6 +20,9 @@ import {
   updateProfilePhotos,
   base64ToBlob,
   urlToBlob,
+  savePersonalityQuizProgress,
+  getPersonalityQuizProgress,
+  clearPersonalityQuizProgress,
 } from './services/api';
 import { MoffyAuthClient } from './utils/oauthClient';
 import { Header } from './components/Header';
@@ -93,6 +96,9 @@ export const App: React.FC = () => {
 
   // 診断された4次元生スコア
   const [traitScores, setTraitScores] = useState<Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> | null>(null);
+  // 性格診断の途中保存データ（回答・開放質問数）
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
+  const [quizRevealedCount, setQuizRevealedCount] = useState<number>(1);
 
   // OAuth 2.0 クライアントの初期化
   const authClient = useMemo(() => {
@@ -244,7 +250,19 @@ export const App: React.FC = () => {
         return;
       }
 
-      // モッフィー未所持: クイズ画面へ遷移
+      // モッフィー未所持: クイズの途中保存データを復元
+      try {
+        const savedProgress = await getPersonalityQuizProgress(resolvedUserId);
+        if (savedProgress && savedProgress.answers && Object.keys(savedProgress.answers).length > 0) {
+          setQuizAnswers(savedProgress.answers);
+          const answeredCount = Object.keys(savedProgress.answers).length;
+          setQuizRevealedCount(savedProgress.revealedCount || answeredCount + 1);
+        }
+      } catch (e) {
+        console.warn('Could not restore personality quiz progress:', e);
+      }
+
+      // クイズ画面へ遷移
       if (hasCallbackHash) {
         setLoadingMode('signin');
         setPipelineTitle('認証完了');
@@ -269,9 +287,28 @@ export const App: React.FC = () => {
   const isDarkOpening = isDarkTheme;
 
   // ======================================================================
+  // ログアウト処理（性格診断中であれば途中経過をクラウド & ローカル保存）
+  // ======================================================================
+  const handleLogout = async () => {
+    if (stage === 'quiz' && discordUserId && Object.keys(quizAnswers).length > 0) {
+      try {
+        await savePersonalityQuizProgress(discordUserId, quizAnswers, quizRevealedCount);
+      } catch (e) {
+        console.warn('Failed to save quiz progress on logout:', e);
+      }
+    }
+    authClient.logout();
+    window.location.replace('./oauth.html');
+  };
+
+  // ======================================================================
   // 性格診断終了 → 4次元集計 & 16タイプ判定
   // ======================================================================
   const handleQuizFinish = async (answers: Record<number, number>) => {
+    // 診断完了後は中断進捗をクリア
+    if (discordUserId) {
+      clearPersonalityQuizProgress(discordUserId).catch(() => {});
+    }
     const scores: Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> = {
       E: 0, I: 0,
       S: 0, N: 0,
@@ -566,8 +603,8 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 共通ヘッダー */}
-      <Header apiStatus={apiStatus} isDark={isDarkOpening} />
+      {/* 共通ヘッダー（左上ログアウト機能付き） */}
+      <Header apiStatus={apiStatus} isDark={isDarkOpening} onLogout={handleLogout} />
 
       {/* エラーアラート */}
       {errorMsg && (
@@ -618,6 +655,15 @@ export const App: React.FC = () => {
           <QuizScreen
             key={`quiz_${discordUserId}`}
             questions={PERSONALITY_QUESTIONS}
+            initialAnswers={quizAnswers}
+            initialRevealedCount={quizRevealedCount}
+            onProgressChange={(answers, revealed) => {
+              setQuizAnswers(answers);
+              setQuizRevealedCount(revealed);
+              if (discordUserId) {
+                savePersonalityQuizProgress(discordUserId, answers, revealed).catch(() => {});
+              }
+            }}
             onFinish={handleQuizFinish}
             onDarknessChange={(isDark) => setIsDarkTheme(isDark)}
           />

@@ -12,6 +12,7 @@ export default defineConfig({
         main: resolve(import.meta.dirname, 'index.html'),
         oauth: resolve(import.meta.dirname, 'oauth.html'),
         home: resolve(import.meta.dirname, 'home.html'),
+        share: resolve(import.meta.dirname, 'share.html'),
       },
     },
   },
