@@ -117,6 +117,10 @@ export async function checkApiHealth(): Promise<{ authenticated: boolean; name: 
 }
 
 export interface RegisterProfileOptions {
+  name?: string | null;
+  lastName?: string | null;
+  firstName?: string | null;
+  nickname?: string | null;
   grade?: string | null;
   university?: string | null;
   photoBlob?: Blob | File | null;
@@ -134,13 +138,21 @@ export async function registerUserProfile(
     throw new Error('APIキーが設定されていません。GitHub Secrets の VITE_MOFFY_API_KEY を設定してください。');
   }
 
+  let name = discordUserId;
+  let lastName = '';
+  let firstName = '';
+  let nickname = '';
   let grade = 'B1';
   let university = '未設定';
   let photoBlob: Blob | File | null = null;
   let arrangedPhotoBlob: Blob | File | null = null;
 
-  if (photoOrOptions && ('grade' in photoOrOptions || 'university' in photoOrOptions || 'photoBlob' in photoOrOptions)) {
+  if (photoOrOptions && ('name' in photoOrOptions || 'lastName' in photoOrOptions || 'firstName' in photoOrOptions || 'nickname' in photoOrOptions || 'grade' in photoOrOptions || 'university' in photoOrOptions || 'photoBlob' in photoOrOptions)) {
     const opts = photoOrOptions as RegisterProfileOptions;
+    if (opts.lastName && opts.lastName.trim()) lastName = opts.lastName.trim();
+    if (opts.firstName && opts.firstName.trim()) firstName = opts.firstName.trim();
+    if (opts.nickname && opts.nickname.trim()) nickname = opts.nickname.trim();
+    if (opts.name && opts.name.trim()) name = opts.name.trim();
     if (opts.grade) grade = opts.grade;
     if (opts.university) university = opts.university;
     if (opts.photoBlob) photoBlob = opts.photoBlob;
@@ -149,8 +161,15 @@ export async function registerUserProfile(
     photoBlob = photoOrOptions;
   }
 
+  const fullName = [lastName, firstName].filter(Boolean).join(' ');
+  const finalName = fullName || nickname || name || discordUserId;
+
   const formData = new FormData();
   formData.append('discord_user_id', discordUserId);
+  formData.append('name', finalName);
+  if (lastName) formData.append('last_name', lastName);
+  if (firstName) formData.append('first_name', firstName);
+  if (nickname) formData.append('nickname', nickname);
   formData.append('password', password);
   formData.append('grade', grade);
   formData.append('university', university);
@@ -190,6 +209,10 @@ export async function registerUserProfile(
   }
 
   const result: RegistrationResult = await res.json();
+  if (!result.name) result.name = finalName;
+  if (!result.last_name && lastName) result.last_name = lastName;
+  if (!result.first_name && firstName) result.first_name = firstName;
+  if (!result.nickname && nickname) result.nickname = nickname;
   return result;
 }
 
@@ -236,6 +259,10 @@ export async function loginUser(
 
   const userResult: RegistrationResult = {
     discord_user_id: data.user.discord_user_id,
+    name: data.user.name || data.user.display_name || null,
+    last_name: data.user.last_name || null,
+    first_name: data.user.first_name || null,
+    nickname: data.user.nickname || null,
     photo_url: data.user.photo_url || null,
     default_photo_url: data.user.default_photo_url || null,
     arranged_photo_url: data.user.arranged_photo_url || null,
@@ -334,6 +361,10 @@ export async function registerGoogleUser(payload: GoogleRegisterPayload): Promis
   const formData = new FormData();
   formData.append('temp_token', payload.temp_token);
   formData.append('discord_user_id', payload.discord_user_id);
+  formData.append('name', payload.name.trim());
+  if (payload.last_name) formData.append('last_name', payload.last_name.trim());
+  if (payload.first_name) formData.append('first_name', payload.first_name.trim());
+  if (payload.nickname) formData.append('nickname', payload.nickname.trim());
   formData.append('grade', payload.grade);
   formData.append('university', payload.university);
 

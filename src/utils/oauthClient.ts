@@ -13,6 +13,10 @@
 
 export interface AuthUser {
   discord_user_id: string;
+  name?: string | null;
+  last_name?: string | null;
+  first_name?: string | null;
+  nickname?: string | null;
   grade?: string | null;
   university?: string | null;
   photo_url?: string | null;
@@ -212,6 +216,10 @@ export class MoffyAuthClient {
 
     const user: AuthUser = {
       discord_user_id: discordUserId,
+      name: params.get('name') || null,
+      last_name: params.get('last_name') || null,
+      first_name: params.get('first_name') || null,
+      nickname: params.get('nickname') || null,
       grade: params.get('grade') || null,
       university: params.get('university') || null,
       photo_url: params.get('photo_url') || null,

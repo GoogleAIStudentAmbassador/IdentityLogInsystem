@@ -22,6 +22,10 @@ import { GRADE_OPTIONS } from '../types';
 
 export interface OnboardingData {
   discordUserId: string;
+  name: string;
+  lastName?: string;
+  firstName?: string;
+  nickname?: string;
   password?: string;
   hasMoffy: boolean;
   uploadedPhoto: File | Blob | null;
@@ -55,6 +59,24 @@ function getInitialDiscordId(initialId: string): string {
   return initialId;
 }
 
+function splitGoogleName(fullName?: string | null): { lastName: string; firstName: string; nickname: string } {
+  if (!fullName) return { lastName: '', firstName: '', nickname: '' };
+  const trimmed = fullName.trim();
+  const parts = trimmed.split(/\s+/);
+  if (parts.length >= 2) {
+    return {
+      lastName: parts[0],
+      firstName: parts.slice(1).join(' '),
+      nickname: parts.slice(1).join(' '),
+    };
+  }
+  return {
+    lastName: trimmed,
+    firstName: '',
+    nickname: trimmed,
+  };
+}
+
 export const IntroScreen: React.FC<IntroScreenProps> = ({
   onContinue,
   onGoogleSignIn,
@@ -64,8 +86,8 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   onStateChange,
   isSubmitting = false,
 }) => {
+  const [internalAuthMode, setInternalAuthMode] = useState<'signin' | 'signup'>('signin');
   const [internalIsSignedInOrUp, setInternalIsSignedInOrUp] = useState(false);
-  const [internalAuthMode, setInternalAuthMode] = useState<'signin' | 'signup'>('signup');
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isGisReady, setIsGisReady] = useState(false);
   const submitting = isSubmitting;
@@ -86,6 +108,23 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const initialNameParts = React.useMemo(() => splitGoogleName(googleOnboardingInfo?.name), [googleOnboardingInfo?.name]);
+  const [lastName, setLastName] = useState(initialNameParts.lastName);
+  const [firstName, setFirstName] = useState(initialNameParts.firstName);
+  const [nickname, setNickname] = useState(initialNameParts.nickname);
+  const [prevGoogleName, setPrevGoogleName] = useState(() => googleOnboardingInfo?.name || '');
+
+  // Google Onboarding からの名前同期（React推奨のAdjusting state during renderingパターン）
+  if (googleOnboardingInfo?.name && googleOnboardingInfo.name !== prevGoogleName) {
+    setPrevGoogleName(googleOnboardingInfo.name);
+    if (!lastName && !firstName && !nickname) {
+      const parts = splitGoogleName(googleOnboardingInfo.name);
+      setLastName(parts.lastName);
+      setFirstName(parts.firstName);
+      setNickname(parts.nickname);
+    }
+  }
 
   const [grade, setGrade] = useState<GradeType>('B1');
   const [university, setUniversity] = useState('');
@@ -243,12 +282,22 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
       ? isIdCompleted
       : isIdCompleted && isPasswordCompleted && isConfirmPasswordCompleted;
 
-  // 4. 大学名・学年完了判定（サインアップまたはgoogle_onboarding時は1文字以上入力必須）
+  // 4. お名前（姓・名・ニックネーム）・大学名・学年完了判定（サインアップまたはgoogle_onboarding時は入力必須）
+  const cleanLastName = Array.from(lastName.replace(/[\r\n\t]/g, ' ').trim()).slice(0, 30).join('');
+  const cleanFirstName = Array.from(firstName.replace(/[\r\n\t]/g, ' ').trim()).slice(0, 30).join('');
+  const cleanNickname = Array.from(nickname.replace(/[\r\n\t]/g, ' ').trim()).slice(0, 30).join('');
+  const isNameCompleted =
+    authMode === 'signin'
+      ? true
+      : cleanLastName.length >= 1 && cleanFirstName.length >= 1 && cleanNickname.length >= 1;
+
   const isUniversityCompleted =
     authMode === 'signin' ? true : university.trim().length >= 1;
 
   const isProfileCompleted =
-    authMode === 'signin' ? isAuthCompleted : isAuthCompleted && isUniversityCompleted;
+    authMode === 'signin'
+      ? isAuthCompleted
+      : isAuthCompleted && isNameCompleted && isUniversityCompleted;
 
   // 🌟 批判検証是正 4: 一度アンロックされたセクションの保持（入力中の突然の消失・CLSを防止）
   // React公式推奨パターン（Adjusting state during rendering）で余計なEffectやカスケードレンダリングを完全排除
@@ -270,15 +319,13 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     setReachedSections((prev) => ({ ...prev, moffy: true }));
   }
 
-  // 5. モッフィー所持ステップ完了判定
+  // モッフィー選択フェーズの完了判定
   const isMoffyStepCompleted =
     authMode === 'signin'
       ? true
-      : hasMoffy === false ||
-        (hasMoffy === true &&
-          uploadedFile !== null &&
-          !isVerifying &&
-          (verifyResult?.is_moffy === true || verifyWarning !== null));
+      : hasMoffy === false
+      ? true
+      : hasMoffy === true && !!uploadedFile && !isVerifying && (!verifyResult || verifyResult.is_moffy || !!verifyWarning);
 
   // 続行可能かどうかの判定
   const isContinueAvailable =
@@ -287,13 +334,16 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
       : isProfileCompleted && isMoffyStepCompleted;
 
   // 🌟 現在フォーカスすべきターゲット（星々が周回する対象）
-  const getActiveTarget = (): 'id' | 'password' | 'confirmPassword' | 'academic' | 'moffy' | 'upload' | 'continue' => {
+  const getActiveTarget = (): 'id' | 'password' | 'confirmPassword' | 'lastName' | 'firstName' | 'nickname' | 'academic' | 'moffy' | 'upload' | 'continue' => {
     if (!isIdCompleted) return 'id';
     if (authMode !== 'google_onboarding') {
       if (!isPasswordCompleted) return 'password';
       if (authMode === 'signup' && !isConfirmPasswordCompleted) return 'confirmPassword';
     }
     if (authMode !== 'signin') {
+      if (!cleanLastName) return 'lastName';
+      if (!cleanFirstName) return 'firstName';
+      if (!cleanNickname) return 'nickname';
       if (!isUniversityCompleted) return 'academic';
       if (hasMoffy === null) return 'moffy';
       if (
@@ -411,9 +461,25 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
       return;
     }
 
+    const cleanLastName = Array.from(lastName.replace(/[\r\n\t]/g, ' ').trim()).slice(0, 30).join('');
+    const cleanFirstName = Array.from(firstName.replace(/[\r\n\t]/g, ' ').trim()).slice(0, 30).join('');
+    const cleanNickname = Array.from(nickname.replace(/[\r\n\t]/g, ' ').trim()).slice(0, 30).join('');
+    const fullName = [cleanLastName, cleanFirstName].filter(Boolean).join(' ');
     const cleanUniversity = university.replace(/[\r\n\t]/g, ' ').trim().slice(0, 50);
 
     if (authMode === 'google_onboarding') {
+      if (!cleanLastName) {
+        setError('姓（名字）を入力してください');
+        return;
+      }
+      if (!cleanFirstName) {
+        setError('名（お名前）を入力してください');
+        return;
+      }
+      if (!cleanNickname) {
+        setError('ニックネーム（呼び名）を入力してください');
+        return;
+      }
       if (!cleanUniversity) {
         setError('大学名または所属機関を入力してください');
         return;
@@ -440,6 +506,10 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
       setError(null);
       onContinue({
         discordUserId: discordId.trim(),
+        name: fullName || cleanNickname,
+        lastName: cleanLastName,
+        firstName: cleanFirstName,
+        nickname: cleanNickname,
         hasMoffy: !!hasMoffy,
         uploadedPhoto: uploadedFile,
         authMode: 'google_onboarding',
@@ -462,6 +532,18 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
       }
       if (!isConfirmPasswordCompleted) {
         setError('確認用パスワードが一致していません');
+        return;
+      }
+      if (!cleanLastName) {
+        setError('姓（名字）を入力してください');
+        return;
+      }
+      if (!cleanFirstName) {
+        setError('名（お名前）を入力してください');
+        return;
+      }
+      if (!cleanNickname) {
+        setError('ニックネーム（呼び名）を入力してください');
         return;
       }
       if (!cleanUniversity) {
@@ -492,6 +574,10 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
     onContinue({
       discordUserId: discordId.trim(),
+      name: fullName || cleanNickname || discordId.trim(),
+      lastName: cleanLastName || undefined,
+      firstName: cleanFirstName || undefined,
+      nickname: cleanNickname || undefined,
       password,
       hasMoffy: !!hasMoffy,
       uploadedPhoto: uploadedFile,
@@ -901,16 +987,124 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
             )}
 
             {/* ------------------------------------------------------------ */}
-            {/* 4. 大学名・学年入力（サインアップまたはGoogleオンボーディング時） */}
+            {/* 4. プロフィール入力（お名前・大学名・学年） */}
             {/* ------------------------------------------------------------ */}
             {((authMode === 'signup' && (isAuthCompleted || reachedSections.academic)) ||
               (authMode === 'google_onboarding' && isIdCompleted)) && (
               <div ref={academicSectionRef} className="animate-fade-in pt-4 border-t border-gray-700 space-y-4">
+                {/* お名前（姓・名）＆ ニックネーム */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-gray-300">
+                      {authMode === 'google_onboarding' ? '2. お名前（氏名 ＆ ニックネーム）' : '4. お名前（氏名 ＆ ニックネーム）'}{' '}
+                      <span className="text-rose-400">*</span>
+                    </label>
+                    {isNameCompleted && (
+                      <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1 animate-fade-in">
+                        <Check className="w-3.5 h-3.5" />
+                        OK
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 姓・名 横並びグリッド */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1 pl-1">
+                        <label htmlFor="lastNameInput" className="text-[11px] font-medium text-gray-300">
+                          姓（名字） <span className="text-rose-400">*</span>
+                        </label>
+                        {cleanLastName.length >= 1 && (
+                          <span className="text-[10px] text-emerald-400 flex items-center gap-0.5">
+                            <Check className="w-3 h-3" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative w-full">
+                        {activeTarget === 'lastName' && <OrbitingStars count={5} isDark={true} />}
+                        <input
+                          id="lastNameInput"
+                          type="text"
+                          maxLength={30}
+                          value={lastName}
+                          onChange={(e) => {
+                            setLastName(e.target.value);
+                            if (error) setError(null);
+                          }}
+                          placeholder="例: 山田"
+                          className="relative z-10 w-full h-13 px-4 rounded-full border border-gray-600 bg-gray-900/80 text-white placeholder-gray-500 text-sm font-medium focus:bg-gray-900 focus:border-google-blue focus:ring-4 focus:ring-google-blue/10 focus:outline-none transition shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1 pl-1">
+                        <label htmlFor="firstNameInput" className="text-[11px] font-medium text-gray-300">
+                          名（名前） <span className="text-rose-400">*</span>
+                        </label>
+                        {cleanFirstName.length >= 1 && (
+                          <span className="text-[10px] text-emerald-400 flex items-center gap-0.5">
+                            <Check className="w-3 h-3" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative w-full">
+                        {activeTarget === 'firstName' && <OrbitingStars count={5} isDark={true} />}
+                        <input
+                          id="firstNameInput"
+                          type="text"
+                          maxLength={30}
+                          value={firstName}
+                          onChange={(e) => {
+                            setFirstName(e.target.value);
+                            if (error) setError(null);
+                          }}
+                          placeholder="例: 太郎"
+                          className="relative z-10 w-full h-13 px-4 rounded-full border border-gray-600 bg-gray-900/80 text-white placeholder-gray-500 text-sm font-medium focus:bg-gray-900 focus:border-google-blue focus:ring-4 focus:ring-google-blue/10 focus:outline-none transition shadow-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ニックネーム */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1 pl-1">
+                      <label htmlFor="nicknameInput" className="text-[11px] font-medium text-gray-300">
+                        ニックネーム（呼び名） <span className="text-rose-400">*</span>
+                      </label>
+                      {cleanNickname.length >= 1 && (
+                        <span className="text-[10px] text-emerald-400 flex items-center gap-0.5">
+                          <Check className="w-3 h-3" />
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative w-full">
+                      {activeTarget === 'nickname' && <OrbitingStars count={5} isDark={true} />}
+                      <input
+                        id="nicknameInput"
+                        type="text"
+                        maxLength={30}
+                        value={nickname}
+                        onChange={(e) => {
+                          setNickname(e.target.value);
+                          if (error) setError(null);
+                        }}
+                        placeholder="例: タロー / たかふみ (名と同じでもOK)"
+                        className="relative z-10 w-full h-13 px-5 rounded-full border border-gray-600 bg-gray-900/80 text-white placeholder-gray-500 text-sm font-medium focus:bg-gray-900 focus:border-google-blue focus:ring-4 focus:ring-google-blue/10 focus:outline-none transition shadow-sm"
+                      />
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1 pl-2">
+                      公式身分証（パスポート）には氏名、フレンド交換やチャットにはニックネームが表示されます
+                    </p>
+                  </div>
+                </div>
+
                 {/* 大学名 */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label htmlFor="universityInput" className="text-xs font-bold text-gray-300">
-                      {authMode === 'google_onboarding' ? '2. 大学名 / 所属機関' : '4. 大学名 / 所属機関'}
+                      {authMode === 'google_onboarding' ? '3. 大学名 / 所属機関' : '5. 大学名 / 所属機関'}{' '}
+                      <span className="text-rose-400">*</span>
                     </label>
                     {isUniversityCompleted && (
                       <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1 animate-fade-in">
@@ -976,7 +1170,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
               (isProfileCompleted || reachedSections.moffy) && (
               <div ref={moffySectionRef} className="animate-fade-in pt-4 border-t border-gray-700">
                 <label className="text-xs font-bold text-gray-300 block mb-3 text-center">
-                  {authMode === 'google_onboarding' ? '3. モッフィーをすでに持っていますか？' : '5. モッフィーをすでに持っていますか？'}
+                  {authMode === 'google_onboarding' ? '4. モッフィーをすでに持っていますか？' : '6. モッフィーをすでに持っていますか？'}
                 </label>
 
                 <div className="relative w-full">

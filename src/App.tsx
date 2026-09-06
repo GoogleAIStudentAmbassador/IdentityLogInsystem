@@ -148,6 +148,10 @@ export const App: React.FC = () => {
 
       const userResult: RegistrationResult = {
         discord_user_id: resolvedUserId,
+        name: authUser.name || null,
+        last_name: authUser.last_name || null,
+        first_name: authUser.first_name || null,
+        nickname: authUser.nickname || null,
         photo_url: authUser.photo_url || null,
         default_photo_url: authUser.default_photo_url || null,
         arranged_photo_url: authUser.arranged_photo_url || null,
@@ -171,6 +175,10 @@ export const App: React.FC = () => {
       setRegResult(userResult);
 
       const localSession = loadUserSession(resolvedUserId);
+      if (!userResult.name && localSession?.name) userResult.name = localSession.name;
+      if (!userResult.last_name && localSession?.lastName) userResult.last_name = localSession.lastName;
+      if (!userResult.first_name && localSession?.firstName) userResult.first_name = localSession.firstName;
+      if (!userResult.nickname && localSession?.nickname) userResult.nickname = localSession.nickname;
       if (!userResult.grade && localSession?.grade) userResult.grade = localSession.grade;
       if (!userResult.university && localSession?.university) userResult.university = localSession.university;
 
@@ -200,10 +208,16 @@ export const App: React.FC = () => {
           setCardDataUrl(localSession.cardDataUrl);
           const restoredBlob = base64ToBlob(localSession.cardDataUrl);
           setCardBlob(restoredBlob);
-        } else {
           const { blob, dataUrl } = await generateProfileCardBlob(
             archetypeToUse,
-            resolvedUserId,
+            {
+              discordUserId: resolvedUserId,
+              name: userResult.name || authUser.name || null,
+              lastName: userResult.last_name || authUser.last_name || localSession?.lastName || null,
+              firstName: userResult.first_name || authUser.first_name || localSession?.firstName || null,
+              nickname: userResult.nickname || authUser.nickname || localSession?.nickname || null,
+              traitScores: localSession?.traitScores || null,
+            },
             arrangedPhoto
           );
           setCardBlob(blob);
@@ -211,6 +225,10 @@ export const App: React.FC = () => {
 
           saveUserSession({
             discordUserId: resolvedUserId,
+            name: userResult.name || authUser.name || null,
+            lastName: userResult.last_name || authUser.last_name || localSession?.lastName || null,
+            firstName: userResult.first_name || authUser.first_name || localSession?.firstName || null,
+            nickname: userResult.nickname || authUser.nickname || localSession?.nickname || null,
             mbti: archetypeToUse.mbtiCode,
             cardDataUrl: dataUrl,
             arrangedPhotoUrl: arrangedPhoto,
@@ -221,24 +239,8 @@ export const App: React.FC = () => {
           });
         }
 
-        if (hasCallbackHash) {
-          setLoadingMode('signin');
-          setPipelineTitle('ログイン成功');
-          setPipelineMessage('モッフィーパートナーカードを展開中...');
-          setStage('generating');
-          setIsBursting(true);
-
-          setTimeout(() => {
-            setIsBursting(false);
-            setIsDarkTheme(true);
-            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-            setStage('result');
-          }, 1200);
-        } else {
-          setIsDarkTheme(true);
-          window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-          setStage('result');
-        }
+        // 🌟 診断済みアカウント: コミュニティポータル (home.html) へ直行
+        window.location.replace('./home.html');
         return;
       }
 
@@ -316,7 +318,14 @@ export const App: React.FC = () => {
       const photoToUse = uploadedPhoto || customMoffyImageUrl;
       const { blob, dataUrl } = await generateProfileCardBlob(
         targetArchetype,
-        discordUserId,
+        {
+          discordUserId,
+          name: regResult?.name || null,
+          lastName: regResult?.last_name || null,
+          firstName: regResult?.first_name || null,
+          nickname: regResult?.nickname || null,
+          traitScores: scores,
+        },
         photoToUse
       );
       setCardBlob(blob);
@@ -324,6 +333,10 @@ export const App: React.FC = () => {
 
       saveUserSession({
         discordUserId,
+        name: regResult?.name || null,
+        lastName: regResult?.last_name || null,
+        firstName: regResult?.first_name || null,
+        nickname: regResult?.nickname || null,
         mbti: targetArchetype.mbtiCode,
         traitScores: scores,
         cardDataUrl: dataUrl,
@@ -425,7 +438,14 @@ export const App: React.FC = () => {
 
       const { blob, dataUrl } = await generateProfileCardBlob(
         selectedArchetype,
-        discordUserId,
+        {
+          discordUserId,
+          name: regResult?.name || null,
+          lastName: regResult?.last_name || null,
+          firstName: regResult?.first_name || null,
+          nickname: regResult?.nickname || null,
+          traitScores,
+        },
         finalMoffyBlob
       );
       setCardBlob(blob);
@@ -433,6 +453,10 @@ export const App: React.FC = () => {
 
       saveUserSession({
         discordUserId,
+        name: regResult?.name || null,
+        lastName: regResult?.last_name || null,
+        firstName: regResult?.first_name || null,
+        nickname: regResult?.nickname || null,
         mbti: selectedArchetype.mbtiCode,
         traitScores,
         cardDataUrl: dataUrl,
@@ -450,16 +474,33 @@ export const App: React.FC = () => {
       setErrorMsg(`${msg}（公式モッフィー画像でカードを生成します）`);
 
       try {
-        const { blob, dataUrl } = await generateProfileCardBlob(selectedArchetype, discordUserId);
+        const { blob, dataUrl } = await generateProfileCardBlob(
+          selectedArchetype,
+          {
+            discordUserId,
+            name: regResult?.name || null,
+            lastName: regResult?.last_name || null,
+            firstName: regResult?.first_name || null,
+            nickname: regResult?.nickname || null,
+            traitScores,
+          },
+          null
+        );
         setCardBlob(blob);
         setCardDataUrl(dataUrl);
         saveUserSession({
           discordUserId,
+          name: regResult?.name || null,
+          lastName: regResult?.last_name || null,
+          firstName: regResult?.first_name || null,
+          nickname: regResult?.nickname || null,
           mbti: selectedArchetype.mbtiCode,
           traitScores,
           cardDataUrl: dataUrl,
           arrangedPhotoUrl: null,
           defaultPhotoUrl: null,
+          grade: regResult?.grade,
+          university: regResult?.university,
           updatedAt: new Date().toISOString(),
         });
         setIsLoadingEnding(true);
@@ -491,6 +532,10 @@ export const App: React.FC = () => {
     setIsDarkTheme(false);
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     setStage('quiz');
+  };
+
+  const handleGoToHome = () => {
+    window.location.href = './home.html';
   };
 
   return (
@@ -601,6 +646,7 @@ export const App: React.FC = () => {
             chosenShard={chosenShard}
             onReset={handleReset}
             onRetakeQuiz={handleRetakeQuiz}
+            onNext={handleGoToHome}
           />
         )}
       </main>

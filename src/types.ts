@@ -75,6 +75,10 @@ export const GRADE_OPTIONS: { value: GradeType; label: string }[] = [
 
 export interface RegistrationResult {
   discord_user_id: string;
+  name?: string | null;
+  last_name?: string | null;
+  first_name?: string | null;
+  nickname?: string | null;
   photo_url?: string | null;
   default_photo_url?: string | null;
   arranged_photo_url?: string | null;
@@ -104,6 +108,10 @@ export interface GoogleLoginResponse {
   google_name?: string | null;
   user?: {
     discord_user_id: string;
+    name?: string | null;
+    last_name?: string | null;
+    first_name?: string | null;
+    nickname?: string | null;
     custom_discord_id?: string | null;
     display_name?: string | null;
     grade?: string | null;
@@ -125,6 +133,10 @@ export type LoginResponse = GoogleLoginResponse;
 export interface GoogleRegisterPayload {
   temp_token: string;
   discord_user_id: string;
+  name: string;
+  last_name?: string;
+  first_name?: string;
+  nickname?: string;
   grade: GradeType | string;
   university: string;
   photo?: Blob | File | null;
@@ -163,8 +175,34 @@ declare global {
   }
 }
 
+export type SnsPlatform =
+  | 'x'
+  | 'instagram'
+  | 'github'
+  | 'linkedin'
+  | 'discord'
+  | 'youtube'
+  | 'tiktok'
+  | 'threads'
+  | 'facebook'
+  | 'note'
+  | 'qiita'
+  | 'zenn'
+  | 'bluesky'
+  | 'website';
+
+export interface SnsLinkItem {
+  id: string;
+  platform: SnsPlatform;
+  value: string;
+}
+
 export interface UserMoffySession {
   discordUserId: string;
+  name?: string | null;
+  lastName?: string | null;
+  firstName?: string | null;
+  nickname?: string | null;
   mbti: MbtiType;
   traitScores?: Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> | null;
   cardDataUrl?: string;
@@ -172,6 +210,8 @@ export interface UserMoffySession {
   defaultPhotoUrl?: string | null;
   grade?: string | null;
   university?: string | null;
+  preferredStyle?: 'normal' | 'equipped';
+  snsLinks?: SnsLinkItem[];
   updatedAt: string;
 }
 
@@ -238,4 +278,19 @@ export interface PartnerProfileResponse {
 }
 
 export type GameStage = 'intro' | 'checking_auth' | 'quiz' | 'customize' | 'generating' | 'result';
+
+export interface QrPassportData {
+  type: 'moffy_passport';
+  id: string;
+  name?: string;
+  lastName?: string;
+  firstName?: string;
+  nickname?: string;
+  mbti: MbtiType;
+  university: string;
+  grade: string;
+  photoUrl?: string;
+  timestamp: number;
+}
+
 

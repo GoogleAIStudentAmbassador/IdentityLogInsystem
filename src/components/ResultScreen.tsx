@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ShieldCheck,
   LogOut,
+  ArrowRight,
 } from 'lucide-react';
 import type { Archetype, RegistrationResult, ShardPalette } from '../types';
 
@@ -24,6 +25,7 @@ interface ResultScreenProps {
   chosenShard: ShardPalette;
   onReset: () => void;
   onRetakeQuiz?: () => void;
+  onNext?: () => void;
 }
 
 type AnimationStage = 'shard' | 'expanding' | 'crystallized' | 'revealed';
@@ -40,6 +42,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   chosenShard,
   onReset,
   onRetakeQuiz,
+  onNext,
 }) => {
   // 演出ステージ: 'shard' (中央小カケラ) -> 'expanding' (拡大＆受肉) -> 'crystallized' (水晶玉完成) -> 'revealed' (詳細テキスト生成)
   const [animStage, setAnimStage] = useState<AnimationStage>('shard');
@@ -95,6 +98,14 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
     );
     const url = encodeURIComponent(window.location.href);
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank');
+  };
+
+  const handleNext = () => {
+    if (onNext) {
+      onNext();
+    } else {
+      window.location.href = './home.html';
+    }
   };
 
   // 4次元心理バランスのパーセンテージ計算 (E/I, S/N, T/F, J/P)
@@ -600,11 +611,22 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
             />
           </div>
 
-          {/* Googleスタイルのピルボタン */}
+          {/* メインアクション: 次へ進む */}
+          <div className="w-full max-w-sm mb-3">
+            <button
+              onClick={handleNext}
+              className="w-full py-3.5 px-6 rounded-full bg-[#1a73e8] hover:bg-blue-600 text-white text-sm sm:text-base font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md hover:shadow-blue-500/25 active:scale-[0.99]"
+            >
+              <span>次へ</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Googleスタイルのピルボタン（カード保存・シェア） */}
           <div className="flex w-full max-w-sm gap-3">
             <button
               onClick={handleDownloadCard}
-              className="flex-1 py-3 px-5 rounded-full bg-[#1a73e8] hover:bg-blue-600 text-white text-xs sm:text-sm font-medium flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
+              className="flex-1 py-3 px-5 rounded-full border border-white/20 hover:bg-white/10 text-white text-xs sm:text-sm font-medium flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <Download className="w-4 h-4" />
               <span>カードを保存</span>

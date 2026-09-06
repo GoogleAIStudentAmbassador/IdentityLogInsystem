@@ -112,6 +112,10 @@ export const OAuthApp: React.FC = () => {
         }
       }
       fragmentParams.set('discord_user_id', user.discord_user_id);
+      if (user.name) fragmentParams.set('name', user.name);
+      if (user.last_name) fragmentParams.set('last_name', user.last_name);
+      if (user.first_name) fragmentParams.set('first_name', user.first_name);
+      if (user.nickname) fragmentParams.set('nickname', user.nickname);
       if (user.grade) fragmentParams.set('grade', String(user.grade));
       if (user.university) fragmentParams.set('university', user.university);
       if (user.photo_url) fragmentParams.set('photo_url', user.photo_url);
@@ -162,6 +166,10 @@ export const OAuthApp: React.FC = () => {
       const userData = res.user;
       const userResult: RegistrationResult = {
         discord_user_id: userData.discord_user_id,
+        name: userData.name || userData.display_name || res.google_name || null,
+        last_name: userData.last_name || null,
+        first_name: userData.first_name || null,
+        nickname: userData.nickname || null,
         photo_url: userData.photo_url || null,
         default_photo_url: userData.default_photo_url || null,
         arranged_photo_url: userData.arranged_photo_url || null,
@@ -208,6 +216,10 @@ export const OAuthApp: React.FC = () => {
         const res = await registerGoogleUser({
           temp_token: data.tempToken || '',
           discord_user_id: data.discordUserId,
+          name: data.name,
+          last_name: data.lastName,
+          first_name: data.firstName,
+          nickname: data.nickname,
           grade: data.grade,
           university: data.university,
           photo: data.uploadedPhoto,
@@ -219,6 +231,10 @@ export const OAuthApp: React.FC = () => {
 
         const userResult: RegistrationResult = {
           discord_user_id: res.user.discord_user_id,
+          name: res.user.name || res.user.display_name || data.name,
+          last_name: res.user.last_name || data.lastName || null,
+          first_name: res.user.first_name || data.firstName || null,
+          nickname: res.user.nickname || data.nickname || null,
           photo_url: res.user.photo_url || null,
           default_photo_url: res.user.default_photo_url || null,
           arranged_photo_url: res.user.arranged_photo_url || null,
@@ -234,10 +250,27 @@ export const OAuthApp: React.FC = () => {
       } else {
         // 通常新規登録 (サインアップ)
         const result = await registerUserProfile(data.discordUserId, data.password || '', {
+          name: data.name,
+          lastName: data.lastName,
+          firstName: data.firstName,
+          nickname: data.nickname,
           grade: data.grade,
           university: data.university,
           photoBlob: data.uploadedPhoto,
         });
+
+        if (!result.name && data.name) {
+          result.name = data.name;
+        }
+        if (!result.last_name && data.lastName) {
+          result.last_name = data.lastName;
+        }
+        if (!result.first_name && data.firstName) {
+          result.first_name = data.firstName;
+        }
+        if (!result.nickname && data.nickname) {
+          result.nickname = data.nickname;
+        }
 
         handleAuthSuccess(result, null);
       }
