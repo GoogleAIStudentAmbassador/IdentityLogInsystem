@@ -145,11 +145,12 @@ export const ShareApp: React.FC = () => {
       // 3. ログイン中の閲覧者がいる場合、DBにフレンド関係を自動永続化
       if (currentUserId && currentUserId !== targetDiscordId) {
         try {
+          const hasNick = !!(nickname && nickname.trim());
           const friendPayload: FriendItem = {
             discord_user_id: targetDiscordId,
-            name: name || null,
-            lastName: initialLastName || null,
-            firstName: initialFirstName || null,
+            name: hasNick ? null : (name || null),
+            lastName: hasNick ? null : (initialLastName || null),
+            firstName: hasNick ? null : (initialFirstName || null),
             nickname: nickname || null,
             mbti,
             photoUrl: photoUrl || null,
@@ -189,10 +190,11 @@ export const ShareApp: React.FC = () => {
         : `${baseUrl}${archetype.officialImageUrl.replace(/^\/+/, '')}`
       : `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`);
 
-  // 表示名: 【最重要要件】ニックネームがある場合は必ず最優先！
-  const displayName = nickname.trim() || name.trim() || [initialLastName, initialFirstName].filter(Boolean).join(' ') || `@${targetDiscordId}`;
-  const hasSubName = nickname.trim() && (name.trim() || (initialLastName && initialFirstName));
-  const subName = [initialLastName, initialFirstName].filter(Boolean).join(' ') || name.trim();
+  // 表示名: ニックネームが設定されている場合は名前（本名）を一切出さず、ニックネームのみを表示
+  const hasNickname = !!nickname.trim();
+  const displayName = hasNickname
+    ? nickname.trim()
+    : name.trim() || [initialLastName, initialFirstName].filter(Boolean).join(' ') || `@${targetDiscordId}`;
 
   return (
     <div
@@ -303,11 +305,6 @@ export const ShareApp: React.FC = () => {
                 <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
                   {displayName}
                 </h1>
-                {hasSubName && (
-                  <p className={`text-xs ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>
-                    ({subName})
-                  </p>
-                )}
                 <div className="flex items-center justify-center gap-1.5 pt-1">
                   <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300">
                     {archetype.title}
@@ -378,11 +375,6 @@ export const ShareApp: React.FC = () => {
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight mt-3 text-center">
                   {displayName}
                 </h2>
-                {hasSubName && (
-                  <p className={`text-xs ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>
-                    ({subName})
-                  </p>
-                )}
 
                 {/* 性格タイプのモッフィー名 */}
                 <div className="mt-2 text-center space-y-1">

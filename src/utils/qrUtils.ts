@@ -140,10 +140,14 @@ export function createPassportShareUrl(passport: Omit<QrPassportData, 'type' | '
   const url = new URL(baseUrl, isBrowser ? window.location.href : 'https://moffy-ambassador.local/');
   url.searchParams.set('id', passport.id);
   if (passport.mbti) url.searchParams.set('mbti', passport.mbti);
-  if (passport.nickname) url.searchParams.set('nick', passport.nickname);
-  if (passport.name) url.searchParams.set('name', passport.name);
-  if (passport.lastName) url.searchParams.set('last_name', passport.lastName);
-  if (passport.firstName) url.searchParams.set('first_name', passport.firstName);
+  // 【最重要セキュリティ要件】ニックネーム設定時は、URLパラメータからも本名を完全に除外してプライバシーを厳格保護
+  if (passport.nickname && passport.nickname.trim()) {
+    url.searchParams.set('nick', passport.nickname.trim());
+  } else {
+    if (passport.name) url.searchParams.set('name', passport.name);
+    if (passport.lastName) url.searchParams.set('last_name', passport.lastName);
+    if (passport.firstName) url.searchParams.set('first_name', passport.firstName);
+  }
   if (passport.university) url.searchParams.set('univ', passport.university);
   if (passport.grade) url.searchParams.set('grade', passport.grade);
   if (passport.photoUrl) url.searchParams.set('photo', passport.photoUrl);

@@ -180,12 +180,7 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
                 <h3 className={`text-base sm:text-lg font-bold tracking-tight truncate ${
                   isDarkMode ? 'text-neutral-100' : 'text-neutral-900'
                 }`}>
-                  {fullName}
-                  {nickname && (
-                    <span className="text-xs font-normal opacity-80 ml-1.5 font-sans">
-                      ({nickname})
-                    </span>
-                  )}
+                  {nickname && nickname.trim() ? nickname.trim() : (fullName || discordUserId)}
                 </h3>
               </div>
               <span className={`px-2 py-0.5 rounded text-[11px] font-mono shrink-0 border ${
