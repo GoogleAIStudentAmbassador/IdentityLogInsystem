@@ -212,11 +212,9 @@ export const ShareApp: React.FC = () => {
       >
         <div className="max-w-md mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img
-              src="./app-icon.png"
-              alt="Ambassador Icon"
-              className="w-6 h-6 rounded-md object-contain shadow-xs"
-            />
+            <div className="w-6 h-6 rounded-full bg-google-blue flex items-center justify-center text-white text-xs font-bold shadow-xs">
+              G
+            </div>
             <span className="text-xs font-semibold tracking-tight">Google AI Ambassador</span>
           </div>
 
