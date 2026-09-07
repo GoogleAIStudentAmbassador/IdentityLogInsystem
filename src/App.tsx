@@ -23,6 +23,7 @@ import {
   savePersonalityQuizProgress,
   getPersonalityQuizProgress,
   clearPersonalityQuizProgress,
+  saveGameProgress,
 } from './services/api';
 import { MoffyAuthClient } from './utils/oauthClient';
 import { Header } from './components/Header';
@@ -210,10 +211,8 @@ export const App: React.FC = () => {
           setTraitScores(localSession.traitScores);
         }
 
-        if (localSession?.cardDataUrl) {
-          setCardDataUrl(localSession.cardDataUrl);
-          const restoredBlob = base64ToBlob(localSession.cardDataUrl);
-          setCardBlob(restoredBlob);
+        let finalCardDataUrl = localSession?.cardDataUrl || '';
+        try {
           const { blob, dataUrl } = await generateProfileCardBlob(
             archetypeToUse,
             {
@@ -228,22 +227,26 @@ export const App: React.FC = () => {
           );
           setCardBlob(blob);
           setCardDataUrl(dataUrl);
-
-          saveUserSession({
-            discordUserId: resolvedUserId,
-            name: userResult.name || authUser.name || null,
-            lastName: userResult.last_name || authUser.last_name || localSession?.lastName || null,
-            firstName: userResult.first_name || authUser.first_name || localSession?.firstName || null,
-            nickname: userResult.nickname || authUser.nickname || localSession?.nickname || null,
-            mbti: archetypeToUse.mbtiCode,
-            cardDataUrl: dataUrl,
-            arrangedPhotoUrl: arrangedPhoto,
-            defaultPhotoUrl: defaultPhoto,
-            grade: userResult.grade,
-            university: userResult.university,
-            updatedAt: new Date().toISOString(),
-          });
+          finalCardDataUrl = dataUrl;
+        } catch (cardErr) {
+          console.warn('Card generation on login failed, fallback available in profile tab:', cardErr);
         }
+
+        saveUserSession({
+          discordUserId: resolvedUserId,
+          name: userResult.name || authUser.name || null,
+          lastName: userResult.last_name || authUser.last_name || localSession?.lastName || null,
+          firstName: userResult.first_name || authUser.first_name || localSession?.firstName || null,
+          nickname: userResult.nickname || authUser.nickname || localSession?.nickname || null,
+          mbti: archetypeToUse.mbtiCode,
+          cardDataUrl: finalCardDataUrl,
+          traitScores: localSession?.traitScores || null,
+          arrangedPhotoUrl: arrangedPhoto,
+          defaultPhotoUrl: defaultPhoto,
+          grade: userResult.grade,
+          university: userResult.university,
+          updatedAt: new Date().toISOString(),
+        });
 
         // 🌟 診断済みアカウント: コミュニティポータル (home.html) へ直行
         window.location.replace('./home.html');
@@ -384,6 +387,13 @@ export const App: React.FC = () => {
         updatedAt: new Date().toISOString(),
       });
 
+      if (discordUserId) {
+        saveGameProgress('moffy_personality_result', discordUserId, {
+          mbti: targetArchetype.mbtiCode,
+          traitScores: scores,
+        }).catch(() => {});
+      }
+
       setIsLoadingEnding(true);
     } catch (err: unknown) {
       console.error('Card generation failed:', err);
@@ -503,6 +513,13 @@ export const App: React.FC = () => {
         university: regResult?.university,
         updatedAt: new Date().toISOString(),
       });
+
+      if (discordUserId) {
+        saveGameProgress('moffy_personality_result', discordUserId, {
+          mbti: selectedArchetype.mbtiCode,
+          traitScores,
+        }).catch(() => {});
+      }
 
       setIsLoadingEnding(true);
     } catch (err: unknown) {

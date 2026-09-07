@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldCheck, RotateCcw, LogOut, Download, Plus, Trash2, Check, Save } from 'lucide-react';
 import type { AuthUser } from '../../utils/oauthClient';
 import type { UserMoffySession, MbtiType, SnsLinkItem, SnsPlatform } from '../../types';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
 import { SNS_PLATFORMS, detectPlatformFromUrl, sanitizeTextInput } from '../../utils/snsUtils';
-import { saveGameProgress } from '../../services/api';
+import { saveGameProgress, getGameProgress } from '../../services/api';
+import { generateProfileCardBlob } from '../../utils/cardGenerator';
 
 interface ProfileTabProps {
   user: AuthUser | null;
@@ -40,7 +41,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const rawMbti = session?.mbti || user?.mbti || 'INTJ';
   const mbti: MbtiType = (rawMbti in MBTI_ARCHETYPES) ? (rawMbti as MbtiType) : 'INTJ';
   const archetype = MBTI_ARCHETYPES[mbti] || MBTI_ARCHETYPES.INTJ;
-  const cardDataUrl = session?.cardDataUrl || null;
+  const [cardDataUrl, setCardDataUrl] = useState<string | null>(() => session?.cardDataUrl || null);
+  const [isGeneratingCard, setIsGeneratingCard] = useState<boolean>(() => !session?.cardDataUrl);
   const photoUrl = session?.arrangedPhotoUrl || session?.defaultPhotoUrl || user?.arranged_photo_url || user?.photo_url || archetype.officialImageUrl;
 
   // 編集用ローカルステート
@@ -52,6 +54,75 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   // 誕生日（デフォルト非表示）
   const [birthday, setBirthday] = useState<string>(() => session?.birthday || '');
   const [showBirthday, setShowBirthday] = useState<boolean>(() => session?.showBirthday ?? false);
+
+  // パートナーカードの自動生成・同期（セッションに画像データが無い場合、Canvas上で即座に高解像度800x1000カードを生成）
+  useEffect(() => {
+    if (cardDataUrl) {
+      return;
+    }
+
+    let isMounted = true;
+
+    async function generateCard() {
+      try {
+        let scores = session?.traitScores || null;
+        if (!scores && discordId && discordId !== 'Ambassador') {
+          try {
+            const savedRes = await getGameProgress<{ traitScores?: Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> }>('moffy_personality_result', discordId);
+            if (savedRes?.traitScores) {
+              scores = savedRes.traitScores;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        const fullName = [lastName, firstName].filter(Boolean).join(' ') || session?.name || user?.name || discordId;
+        const { dataUrl } = await generateProfileCardBlob(
+          archetype,
+          {
+            discordUserId: discordId,
+            name: fullName,
+            lastName: lastName || null,
+            firstName: firstName || null,
+            nickname: nickname || null,
+            traitScores: scores,
+          },
+          photoUrl
+        );
+
+        if (isMounted) {
+          setCardDataUrl(dataUrl);
+          setIsGeneratingCard(false);
+
+          if (session) {
+            const updated: UserMoffySession = {
+              ...session,
+              cardDataUrl: dataUrl,
+              traitScores: scores || session.traitScores,
+            };
+            onUpdateSession?.(updated);
+            try {
+              localStorage.setItem(`moffy_user_session_${discordId}`, JSON.stringify(updated));
+            } catch {
+              // ignore
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to auto-generate partner card in ProfileTab:', err);
+        if (isMounted) {
+          setIsGeneratingCard(false);
+        }
+      }
+    }
+
+    generateCard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [archetype, cardDataUrl, discordId, user, session, photoUrl, lastName, firstName, nickname, onUpdateSession]);
 
   // SNSリンク一覧ステート
   const [snsLinks, setSnsLinks] = useState<SnsLinkItem[]>(() => {
@@ -191,6 +262,37 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
     // 3. 親コンポーネントへ通知（リアルタイム更新）
     onUpdateSession?.(updatedSession);
 
+    // 3-b. パートナーカードも最新の名前・ニックネームで即座に再生成してセッションへ反映
+    generateProfileCardBlob(
+      archetype,
+      {
+        discordUserId: discordId,
+        name: fullName,
+        lastName: cleanLastName || null,
+        firstName: cleanFirstName || null,
+        nickname: cleanNickname || null,
+        traitScores: updatedSession.traitScores,
+      },
+      photoUrl
+    )
+      .then(({ dataUrl }) => {
+        setCardDataUrl(dataUrl);
+        const sessionWithNewCard: UserMoffySession = {
+          ...updatedSession,
+          cardDataUrl: dataUrl,
+        };
+        try {
+          const storageKey = `moffy_user_session_${discordId}`;
+          localStorage.setItem(storageKey, JSON.stringify(sessionWithNewCard));
+        } catch (err) {
+          console.warn('Failed to save user session with card to localStorage:', err);
+        }
+        onUpdateSession?.(sessionWithNewCard);
+      })
+      .catch((err) => {
+        console.warn('Failed to regenerate partner card on profile save:', err);
+      });
+
     // 4. 保存成功フィードバック
     setSavedSuccess(true);
     setTimeout(() => {
@@ -212,7 +314,14 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
 
       {/* 🌟 1. 公式パートナーカード（800x1000 PNG画像） */}
       <div className="flex flex-col items-center">
-        {cardDataUrl ? (
+        {isGeneratingCard ? (
+          <div className={`w-full rounded-2xl border p-8 flex flex-col items-center justify-center gap-3 transition-colors ${
+            isDarkMode ? 'border-neutral-800 bg-neutral-900' : 'border-neutral-200 bg-white shadow-sm'
+          }`}>
+            <div className="w-8 h-8 border-2 border-neutral-300 border-t-[#4285f4] rounded-full animate-spin" />
+            <span className="text-xs text-neutral-400 font-mono">公式パートナーカードを生成中...</span>
+          </div>
+        ) : cardDataUrl ? (
           <div className="w-full space-y-3">
             <div className={`w-full rounded-2xl overflow-hidden border shadow-lg transition-colors ${
               isDarkMode ? 'border-neutral-800 bg-neutral-900' : 'border-neutral-200 bg-white'
