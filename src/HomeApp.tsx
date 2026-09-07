@@ -162,7 +162,11 @@ export const HomeApp: React.FC = () => {
 
           {/* 右側: アプリ名 ＆ ポータルバッジ */}
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#1a73e8]" />
+            <img
+              src="./app-icon.png"
+              alt="Ambassador Icon"
+              className="w-5 h-5 rounded-md object-contain"
+            />
             <span className="text-xs font-semibold tracking-tight">
               Google AI Ambassador
             </span>
