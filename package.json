@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "verify": "powershell -ExecutionPolicy Bypass -File ./scripts/verify_build_integrity.ps1",
     "preview": "vite preview"
   },
   "dependencies": {

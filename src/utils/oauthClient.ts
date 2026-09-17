@@ -71,8 +71,12 @@ export function isAllowedRedirectUri(targetUri: string, additionalOrigins: strin
       return true;
     }
 
-    // ローカル開発環境の相互乗り入れを許可
-    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+    // ローカル開発環境およびTailscaleネットワークの相互乗り入れを許可
+    if (
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname.startsWith('100.')
+    ) {
       return true;
     }
 
@@ -277,11 +281,39 @@ export class MoffyAuthClient {
   }
 
   /**
-   * 認証済みかどうか判定
+   * 認証済みかどうか判定（トークン有効期限の物理的検証を含む）
    */
   public isAuthenticated(): boolean {
     const session = this.getSession();
-    return !!(session && session.accessToken && session.user && session.user.discord_user_id);
+    if (!session || !session.accessToken || !session.user || !session.user.discord_user_id) {
+      return false;
+    }
+
+    // 1. セッション expiresAt 判定
+    if (session.expiresAt && Date.now() >= session.expiresAt) {
+      console.warn('[MoffyAuthClient] Session expired by expiresAt. Purging session.');
+      this.logout();
+      return false;
+    }
+
+    // 2. JWT トークンの exp クレーム判定
+    try {
+      const parts = session.accessToken.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(atob(parts[1]));
+        if (payload.exp && typeof payload.exp === 'number') {
+          if (Date.now() >= payload.exp * 1000) {
+            console.warn('[MoffyAuthClient] JWT token expired by exp claim. Purging session.');
+            this.logout();
+            return false;
+          }
+        }
+      }
+    } catch {
+      // ignore parse errors for non-standard tokens
+    }
+
+    return true;
   }
 
   /**

@@ -190,10 +190,10 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
               </span>
             </div>
 
-            {/* 1. Discord ID 表示エリア */}
+            {/* 1. Discord ユーザー名 表示エリア */}
             <div className="mb-5">
               <div className="text-[11px] font-medium uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5 flex items-center justify-between">
-                <span>Discord ID</span>
+                <span>Discord ユーザー名</span>
                 <span className="text-[10px] text-neutral-400">タップでコピー</span>
               </div>
               <button
@@ -203,7 +203,7 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
                     ? 'bg-neutral-900/90 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900 text-neutral-100'
                     : 'bg-neutral-50 border-neutral-200 hover:border-neutral-300 hover:bg-neutral-100/80 text-neutral-900'
                 }`}
-                title="Discord IDをコピー"
+                title="Discord ユーザー名をコピー"
               >
                 <div className="flex items-center gap-2.5 truncate">
                   <span className="w-2 h-2 rounded-full bg-[#5865F2] shrink-0" />

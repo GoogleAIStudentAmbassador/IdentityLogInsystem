@@ -53,12 +53,12 @@ export function appendMbtiToUrl(url: string, mbti?: string | null): string {
 const DEFAULT_BASE_URL = 'https://moffy-profile-287701603412.asia-northeast1.run.app';
 
 export function getApiBaseUrl(): string {
-  if (import.meta.env.VITE_MOFFY_API_BASE_URL) {
-    return import.meta.env.VITE_MOFFY_API_BASE_URL.replace(/\/+$/, '');
-  }
   // Vite開発サーバー（ローカル環境）ではプロキシ経由でCORSを完全回避
   if (import.meta.env.DEV) {
     return '';
+  }
+  if (import.meta.env.VITE_MOFFY_API_BASE_URL) {
+    return import.meta.env.VITE_MOFFY_API_BASE_URL.replace(/\/+$/, '');
   }
   return DEFAULT_BASE_URL;
 }
@@ -745,21 +745,10 @@ export async function fetchImageAsBlob(imageUrl: string): Promise<Blob> {
       return await res.blob();
     }
   } catch (err) {
-    console.warn('[fetchImageAsBlob] Direct fetch failed, trying CORS proxy fallback:', err);
+    console.warn('[fetchImageAsBlob] Direct fetch failed, trying urlToBlob fallback:', err);
   }
 
-  // 2. CORS プロキシ経由
-  try {
-    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(imageUrl)}`;
-    const res = await fetch(proxyUrl);
-    if (res.ok) {
-      return await res.blob();
-    }
-  } catch (proxyErr) {
-    console.warn('[fetchImageAsBlob] Proxy fetch also failed:', proxyErr);
-  }
-
-  // 3. 最後のフォールバックとして urlToBlob
+  // 2. フォールバックとして urlToBlob（Image + Canvas または直接 Blob化）
   return await urlToBlob(imageUrl);
 }
 
@@ -1135,7 +1124,14 @@ export async function getPublicProfile(discordUserId: string): Promise<PartnerPr
       return null;
     }
     const data = await res.json();
-    return data as PartnerProfileResponse;
+    const profile = data as PartnerProfileResponse;
+    // 🌟 プライバシー保護: ニックネームが設定されている場合、公開APIレベルで本名(name, last_name, first_name)を物理的にサニタイズ(null化)
+    if (profile && profile.nickname && profile.nickname.trim()) {
+      profile.name = null;
+      if ('last_name' in profile) (profile as Record<string, unknown>).last_name = null;
+      if ('first_name' in profile) (profile as Record<string, unknown>).first_name = null;
+    }
+    return profile;
   } catch (err) {
     console.warn('[getPublicProfile] Fetch failed:', err);
     return null;

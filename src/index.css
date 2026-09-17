@@ -176,3 +176,18 @@
   animation: shardGather 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes mistHaze {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.08) rotate(180deg);
+    opacity: 0.85;
+  }
+}
+
+.animate-mist-haze {
+  animation: mistHaze 8s ease-in-out infinite;
+}
+

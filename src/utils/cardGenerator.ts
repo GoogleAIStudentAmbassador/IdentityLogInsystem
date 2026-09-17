@@ -132,25 +132,14 @@ async function renderProfileCardInternal(
           loadedBlob = await res.blob();
         }
       } catch (err) {
-        console.warn('Direct image fetch failed, trying CORS proxy:', err);
-      }
-
-      if (!loadedBlob) {
-        try {
-          const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(customImage)}`;
-          const res = await fetch(proxyUrl);
-          if (res.ok) {
-            loadedBlob = await res.blob();
-          }
-        } catch (proxyErr) {
-          console.warn('CORS proxy image fetch failed:', proxyErr);
-        }
+        console.warn('Direct image fetch failed:', err);
       }
 
       if (loadedBlob) {
         customBlobUrl = URL.createObjectURL(loadedBlob);
       } else {
-        customBlobUrl = `https://images.weserv.nl/?url=${encodeURIComponent(customImage)}`;
+        // サードパーティプロキシへの通信依存を排除し、直接URLを利用
+        customBlobUrl = customImage;
       }
     }
   }

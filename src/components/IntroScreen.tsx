@@ -17,11 +17,13 @@ import {
 } from 'lucide-react';
 import { OrbitingStars } from './OrbitingStars';
 import { verifyMoffyImage, fetchAuthConfig } from '../services/api';
+import { verifyDiscordUser, type DiscordUserVerification } from '../services/discordApi';
 import type { VerifyMoffyResponse, GradeType } from '../types';
 import { GRADE_OPTIONS } from '../types';
 
 export interface OnboardingData {
   discordUserId: string;
+  discordAvatarUrl?: string | null;
   name: string;
   lastName?: string;
   firstName?: string;
@@ -103,6 +105,53 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   // 🌟 批判検証是正 1: Googleの表示名（実名）を Discord ID に自動代入せず、常にクリーンなDiscord ID入力を促す
   const defaultInitialId = React.useMemo(() => getInitialDiscordId(initialId), [initialId]);
   const [discordId, setDiscordId] = useState(defaultInitialId);
+  const [isDiscordVerifying, setIsDiscordVerifying] = useState(false);
+  const [discordVerifiedData, setDiscordVerifiedData] = useState<DiscordUserVerification | null>(null);
+  const [discordVerifyError, setDiscordVerifyError] = useState<string | null>(null);
+
+  // Discord サーバー在籍確認（本人確認・二段階認証）
+  const handleVerifyDiscord = async () => {
+    const cleanName = discordId.trim().replace(/^@/, '');
+    if (!cleanName) {
+      setDiscordVerifyError('Discord ユーザー名を入力してください');
+      return;
+    }
+
+    setIsDiscordVerifying(true);
+    setDiscordVerifyError(null);
+    setError(null);
+
+    try {
+      const res = await verifyDiscordUser(cleanName);
+      if (res.isAlive && res.user_name) {
+        setDiscordVerifiedData(res);
+        setDiscordId(res.user_name);
+        setDiscordVerifyError(null);
+
+        // サインアップ時、ニックネームが未入力ならDiscordの表示名を自動補填
+        if (!nickname && res.displayname) {
+          setNickname(res.displayname);
+        }
+      } else {
+        setDiscordVerifiedData(null);
+        const msg =
+          res.message ||
+          '指定された Discord ユーザー名が見つかりませんでした。Google AI Student Ambassador 公式サーバーに参加しているかご確認ください。';
+        setDiscordVerifyError(msg);
+      }
+    } catch (err: unknown) {
+      console.error('Discord verification failed:', err);
+      setDiscordVerifiedData(null);
+      setDiscordVerifyError('在籍確認サーバーへの通信に失敗しました。ネットワークまたはTailscale接続をご確認ください。');
+    } finally {
+      setIsDiscordVerifying(false);
+    }
+  };
+
+  const handleResetDiscordVerification = () => {
+    setDiscordVerifiedData(null);
+    setDiscordVerifyError(null);
+  };
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -259,8 +308,11 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   const isPasswordStrong = hasMinLength && hasUppercase && hasNumber;
 
   // --- 入力完了判定 ---
-  // 1. UserID完了（3文字以上の英数字）
-  const isIdCompleted = discordId.trim().length >= 3;
+  // 1. Discord ユーザー名完了（公式サーバー在籍の二段階認証・本人確認が完了していること）
+  const isIdCompleted = Boolean(
+    discordVerifiedData?.isAlive &&
+    discordId.trim().replace(/^@/, '').toLowerCase() === (discordVerifiedData.user_name || '').toLowerCase()
+  );
 
   // 2. パスワード完了（サインアップ時は強度3条件すべて必須、サインイン時は8文字以上、google_onboarding時は不要）
   const isPasswordCompleted =
@@ -457,7 +509,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     if (submitting) return;
 
     if (!isIdCompleted) {
-      setError('Discord User IDを入力してください');
+      setError('Discord ユーザー名の本人確認（二段階認証）を完了してください');
       return;
     }
 
@@ -505,8 +557,9 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
       setError(null);
       onContinue({
-        discordUserId: discordId.trim(),
-        name: fullName || cleanNickname,
+        discordUserId: discordVerifiedData?.user_name || discordId.trim().replace(/^@/, ''),
+        discordAvatarUrl: discordVerifiedData?.avatar_url || null,
+        name: fullName || cleanNickname || (discordVerifiedData?.displayname || discordId.trim()),
         lastName: cleanLastName,
         firstName: cleanFirstName,
         nickname: cleanNickname,
@@ -573,11 +626,12 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     setError(null);
 
     onContinue({
-      discordUserId: discordId.trim(),
-      name: fullName || cleanNickname || discordId.trim(),
+      discordUserId: discordVerifiedData?.user_name || discordId.trim().replace(/^@/, ''),
+      discordAvatarUrl: discordVerifiedData?.avatar_url || null,
+      name: fullName || cleanNickname || (discordVerifiedData?.displayname || discordId.trim()),
       lastName: cleanLastName || undefined,
       firstName: cleanFirstName || undefined,
-      nickname: cleanNickname || undefined,
+      nickname: cleanNickname || discordVerifiedData?.displayname || undefined,
       password,
       hasMoffy: !!hasMoffy,
       uploadedPhoto: uploadedFile,
@@ -756,47 +810,133 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                 ? `Google連携中: ${googleOnboardingInfo?.email || ''} (パスワード入力は不要です)`
                 : authMode === 'signup'
                 ? '入力が完了すると自動的に次の項目が開きます'
-                : '登録済みのDiscord IDとパスワードでサインインします'}
+                : '登録済みのDiscord ユーザー名とパスワードでサインインします'}
             </p>
           </div>
 
           <form onSubmit={handleContinueSubmit} className="w-full space-y-8 text-left">
             {/* ------------------------------------------------------------ */}
-            {/* 1. Discord User ID */}
+            {/* 1. Discord ユーザー名（二段階認証・公式サーバー在籍確認） */}
             {/* ------------------------------------------------------------ */}
             <div className="animate-fade-in">
               <div className="flex items-center justify-between mb-2">
                 <label htmlFor="discordId" className="text-xs font-bold text-gray-300">
-                  1. Discord User ID
+                  1. Discord ユーザー名
                 </label>
                 {isIdCompleted && (
                   <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1 animate-fade-in">
-                    <Check className="w-3.5 h-3.5" />
-                    入力済み
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    本人確認完了
                   </span>
                 )}
               </div>
 
-              <div className="relative w-full">
-                {/* 🌟 星々は現在アクティブな項目の周りを周回 */}
-                {activeTarget === 'id' && <OrbitingStars count={5} isDark={true} />}
+              {!isIdCompleted ? (
+                <div className="space-y-3">
+                  <div className="relative w-full">
+                    {/* 🌟 星々は現在アクティブな項目の周りを周回 */}
+                    {activeTarget === 'id' && <OrbitingStars count={5} isDark={true} />}
 
-                <input
-                  id="discordId"
-                  type="text"
-                  value={discordId}
-                  onChange={(e) => {
-                    setDiscordId(e.target.value);
-                    if (error) setError(null);
-                  }}
-                  placeholder="Discord User ID を入力"
-                  autoComplete="off"
-                  autoFocus
-                  className={`relative z-10 w-full h-14 px-5 rounded-full border-2 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium transition shadow-sm focus:outline-none ${
-                    isIdCompleted ? 'border-gray-600 ring-2 ring-emerald-500/20' : 'border-gray-600 focus:border-google-blue'
-                  }`}
-                />
-              </div>
+                    <div className="relative flex items-center">
+                      <span className="absolute left-4 z-20 text-gray-400 font-mono text-base pointer-events-none">
+                        @
+                      </span>
+                      <input
+                        id="discordId"
+                        type="text"
+                        value={discordId.replace(/^@/, '')}
+                        onChange={(e) => {
+                          setDiscordId(e.target.value);
+                          if (discordVerifiedData) setDiscordVerifiedData(null);
+                          if (discordVerifyError) setDiscordVerifyError(null);
+                          if (error) setError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleVerifyDiscord();
+                          }
+                        }}
+                        placeholder="ユーザー名を入力"
+                        autoComplete="off"
+                        autoFocus
+                        className="relative z-10 w-full h-14 pl-9 pr-5 rounded-full border-2 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium transition shadow-sm focus:outline-none border-gray-600 focus:border-google-blue"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 本人確認へ進む ボタン */}
+                  <button
+                    type="button"
+                    onClick={handleVerifyDiscord}
+                    disabled={isDiscordVerifying || discordId.trim().replace(/^@/, '').length < 2}
+                    className="w-full h-12 rounded-full bg-google-blue/90 hover:bg-google-blue text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {isDiscordVerifying ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>サーバー在籍を確認中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-4 h-4 text-white" />
+                        <span>本人確認へ進む</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* 本人確認エラー表示 */}
+                  {discordVerifyError && (
+                    <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex items-start gap-2.5 animate-fade-in">
+                      <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                      <div className="flex-1 leading-relaxed">
+                        <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
+                        <p className="text-red-300/90">{discordVerifyError}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* 認証済みカード表示（Discordアイコン・表示名・在籍確認バッジ） */
+                <div className="p-4 rounded-2xl bg-gray-900 border border-emerald-500/40 shadow-sm flex items-center justify-between gap-3 animate-fade-in">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="relative w-12 h-12 rounded-full overflow-hidden border border-emerald-400/50 bg-gray-800 shrink-0">
+                      {discordVerifiedData?.avatar_url ? (
+                        <img
+                          src={discordVerifiedData.avatar_url}
+                          alt="Discord Avatar"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-emerald-950 flex items-center justify-center text-emerald-300 font-bold text-lg">
+                          {(discordVerifiedData?.displayname || discordId)[0]?.toUpperCase() || 'D'}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-white text-sm truncate">
+                          {discordVerifiedData?.displayname || discordVerifiedData?.user_name}
+                        </span>
+                        <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                      </div>
+                      <p className="text-xs text-gray-400 font-mono truncate">
+                        @{discordVerifiedData?.user_name}
+                      </p>
+                      <span className="inline-block mt-0.5 text-[10px] text-emerald-400 font-medium">
+                        公式サーバー在籍確認済み
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetDiscordVerification}
+                    className="text-xs text-gray-400 hover:text-white px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors shrink-0 cursor-pointer"
+                  >
+                    変更
+                  </button>
+                </div>
+              )}
 
               {/* 控えめなヘルプ */}
               <div className="mt-2 text-right">
@@ -806,17 +946,17 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                   className="text-[11px] text-gray-400 hover:text-gray-300 inline-flex items-center gap-1 cursor-pointer"
                 >
                   <HelpCircle className="w-3 h-3" />
-                  <span>IDの調べ方</span>
+                  <span>ユーザー名の調べ方</span>
                 </button>
               </div>
 
               {showGuide && (
-                <div className="p-3.5 rounded-2xl bg-gray-800 border border-gray-700 text-left text-xs text-gray-300 space-y-1 mt-2 animate-fade-in">
-                  <p className="font-semibold text-gray-200">Discord User IDの確認手順:</p>
-                  <ol className="list-decimal list-inside space-y-0.5 text-gray-400">
-                    <li>Discordの「ユーザー設定 ⚙️」を開く</li>
-                    <li>「詳細設定」で「開発者モード」をON</li>
-                    <li>自分のアイコンを右クリック →「ユーザーIDをコピー」</li>
+                <div className="p-3.5 rounded-2xl bg-gray-800 border border-gray-700 text-left text-xs text-gray-300 space-y-1.5 mt-2 animate-fade-in">
+                  <p className="font-semibold text-gray-200">Discord ユーザー名の確認手順:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-gray-400 leading-relaxed">
+                    <li>Discord アプリを開き、右下のプロフィールアイコンをタップ</li>
+                    <li>表示名の下に表示されている「@」から始まる半角英数字（例: @username）を確認</li>
+                    <li>Google AI Student Ambassador 公式サーバーに参加しているアカウントのユーザー名を入力してください</li>
                   </ol>
                 </div>
               )}

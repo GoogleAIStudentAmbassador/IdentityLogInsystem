@@ -334,4 +334,30 @@ export interface QrPassportData {
   timestamp: number;
 }
 
+export interface DexBadge {
+  id: string;
+  title: string;
+  description: string;
+  iconName: string;
+  isUnlocked: boolean;
+  unlockedAt?: string;
+}
+
+export interface DexEntry {
+  mbti: MbtiType;
+  archetype: Archetype;
+  isUnlocked: boolean;
+  isOwnPartner: boolean;
+  friends: FriendItem[];
+  imageUrl: string;
+}
+
+export interface DexStats {
+  totalUnlocked: number;
+  totalCount: number;
+  percentage: number;
+  groupStats: Record<'ANALYST' | 'DIPLOMAT' | 'SENTINEL' | 'EXPLORER', { unlocked: number; total: number }>;
+  badges: DexBadge[];
+}
+
 

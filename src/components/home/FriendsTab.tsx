@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { Users, ExternalLink, GraduationCap, QrCode } from 'lucide-react';
-import type { FriendItem, UserMoffySession } from '../../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Users, ExternalLink, GraduationCap, QrCode, BookOpen, ChevronRight } from 'lucide-react';
+import type { FriendItem, UserMoffySession, MbtiType } from '../../types';
 import type { AuthUser } from '../../utils/oauthClient';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
 import { getFriendList } from '../../services/api';
+import { calculateDexStats } from '../../utils/dexUtils';
 
 interface FriendsTabProps {
   user: AuthUser | null;
   session: UserMoffySession | null;
   isDarkMode: boolean;
   onGoToExchange: () => void;
+  friends?: FriendItem[];
+  onGoToDex?: () => void;
 }
 
 export const FriendsTab: React.FC<FriendsTabProps> = ({
@@ -17,19 +20,23 @@ export const FriendsTab: React.FC<FriendsTabProps> = ({
   session,
   isDarkMode,
   onGoToExchange,
+  friends: initialFriends,
+  onGoToDex,
 }) => {
   const discordUserId = user?.discord_user_id || session?.discordUserId || '';
-  const [friends, setFriends] = useState<FriendItem[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(() => !!discordUserId);
+  const [fetchedFriends, setFetchedFriends] = useState<FriendItem[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !initialFriends && !!discordUserId);
 
   useEffect(() => {
+    if (initialFriends) return;
+
     let isMounted = true;
     if (!discordUserId) return;
 
     getFriendList(discordUserId)
       .then((list) => {
         if (isMounted) {
-          setFriends(list || []);
+          setFetchedFriends(list || []);
           setIsLoading(false);
         }
       })
@@ -43,9 +50,14 @@ export const FriendsTab: React.FC<FriendsTabProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [discordUserId]);
+  }, [discordUserId, initialFriends]);
+
+  const friends = initialFriends || fetchedFriends;
 
   const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
+
+  const ownMbti = (session?.mbti || user?.mbti || null) as MbtiType | null;
+  const dexStats = useMemo(() => calculateDexStats(ownMbti, friends).stats, [ownMbti, friends]);
 
   return (
     <div className="space-y-6">
@@ -61,6 +73,39 @@ export const FriendsTab: React.FC<FriendsTabProps> = ({
           イベントや交流会で出会った仲間たちの一覧です
         </p>
       </div>
+
+      {/* モッフィー図鑑クイック導線バナー */}
+      {onGoToDex && (
+        <button
+          type="button"
+          onClick={onGoToDex}
+          className={`w-full p-3.5 rounded-2xl border text-left transition flex items-center justify-between gap-3 shadow-xs cursor-pointer ${
+            isDarkMode
+              ? 'border-neutral-800 bg-neutral-900/60 hover:bg-neutral-800/80'
+              : 'border-neutral-200 bg-neutral-50 hover:bg-neutral-100'
+          }`}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-google-blue/10 text-google-blue flex items-center justify-center shrink-0">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-bold ${isDarkMode ? 'text-neutral-100' : 'text-neutral-900'}`}>
+                  モッフィー図鑑
+                </span>
+                <span className="text-[10px] font-mono font-bold text-google-blue px-1.5 py-0.2 rounded bg-google-blue/10 border border-google-blue/20 shrink-0">
+                  {dexStats.totalUnlocked} / {dexStats.totalCount} 性格解放
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-500 mt-0.5 truncate">
+                出会った仲間のパートナーモッフィーを確認する
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0" />
+        </button>
+      )}
 
       {/* フレンド一覧エリア */}
       {isLoading ? (

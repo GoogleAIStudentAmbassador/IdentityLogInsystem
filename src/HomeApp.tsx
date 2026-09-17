@@ -1,14 +1,17 @@
-import React, { useState, useMemo } from 'react';
-import { Sun, Moon } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Sun, Moon, Loader2 } from 'lucide-react';
 import { MoffyAuthClient } from './utils/oauthClient';
 import type { AuthUser } from './utils/oauthClient';
 import type { UserMoffySession } from './types';
 import { PassportTab } from './components/home/PassportTab';
+import { MoffyDexTab } from './components/home/MoffyDexTab';
 import { FriendExchangeTab } from './components/home/FriendExchangeTab';
 import { ProfileTab } from './components/home/ProfileTab';
 import { FriendsTab } from './components/home/FriendsTab';
 import { FloatingBottomNav } from './components/home/FloatingBottomNav';
 import type { MainTab } from './components/home/FloatingBottomNav';
+import { getFriendList } from './services/api';
+import type { FriendItem } from './types';
 
 const USER_STORAGE_PREFIX = 'moffy_user_session_';
 const THEME_STORAGE_KEY = 'moffy_theme_mode';
@@ -34,7 +37,21 @@ function loadLatestUserSession(discordUserId?: string): UserMoffySession | null 
 }
 
 export const HomeApp: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<MainTab>('home');
+  const [activeTab, setActiveTab] = useState<MainTab>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab') as MainTab;
+      if (tabParam && ['home', 'dex', 'exchange', 'profile', 'friends'].includes(tabParam)) {
+        return tabParam;
+      }
+      const hash = window.location.hash.replace('#', '') as MainTab;
+      if (hash && ['home', 'dex', 'exchange', 'profile', 'friends'].includes(hash)) {
+        return hash;
+      }
+    }
+    return 'home';
+  });
+  const [friends, setFriends] = useState<FriendItem[]>([]);
 
   // テーマモード: localStorageに保存されている値、またはデフォルトでナイトモード(true)
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -61,9 +78,13 @@ export const HomeApp: React.FC = () => {
   };
 
   const authClient = useMemo(() => {
-    return new MoffyAuthClient({
+    const client = new MoffyAuthClient({
       clientId: 'moffy-community-home',
     });
+    if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+      client.handleCallback();
+    }
+    return client;
   }, []);
 
   const [user, setUser] = useState<AuthUser | null>(() => authClient.getUser());
@@ -71,6 +92,48 @@ export const HomeApp: React.FC = () => {
     const authUser = authClient.getUser();
     return loadLatestUserSession(authUser?.discord_user_id);
   });
+
+  // 🌟 認証ガード: 未ログイン状態の場合は即座に OAuth ハブへリダイレクト
+  useEffect(() => {
+    if (!authClient.isAuthenticated()) {
+      if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+        console.error('[HomeApp Auth Guard] Callback token invalid. Stopping redirect loop.');
+        return;
+      }
+      console.log('[HomeApp Auth Guard] Unauthenticated access detected. Redirecting to OAuth hub...');
+      authClient.login();
+      return;
+    }
+
+    const authUser = authClient.getUser();
+    if (!authUser || !authUser.discord_user_id) {
+      console.log('[HomeApp Auth Guard] No valid user found. Redirecting to OAuth hub...');
+      authClient.login();
+      return;
+    }
+  }, [authClient]);
+
+  const discordUserId = user?.discord_user_id || session?.discordUserId || '';
+
+  // フレンド一覧の取得（図鑑の解放状況・フレンドタブで共用）
+  useEffect(() => {
+    if (!discordUserId) return;
+    let isMounted = true;
+
+    getFriendList(discordUserId)
+      .then((list) => {
+        if (isMounted && list) {
+          setFriends(list);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to fetch friend list in HomeApp:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [discordUserId]);
 
   const [preferredStyle, setPreferredStyle] = useState<'normal' | 'equipped'>(() => {
     try {
@@ -82,12 +145,12 @@ export const HomeApp: React.FC = () => {
     return 'equipped';
   });
 
-  const handleStyleChange = (style: 'normal' | 'equipped') => {
+  const handleStyleChange = useCallback((style: 'normal' | 'equipped') => {
     setPreferredStyle(style);
     setSession((prev) => (prev ? { ...prev, preferredStyle: style } : null));
-  };
+  }, []);
 
-  const handleUpdateSession = (updatedSession: UserMoffySession) => {
+  const handleUpdateSession = useCallback((updatedSession: UserMoffySession) => {
     setSession(updatedSession);
     setUser((prev) => {
       if (!prev) return null;
@@ -101,7 +164,7 @@ export const HomeApp: React.FC = () => {
         grade: updatedSession.grade ?? prev.grade,
       };
     });
-  };
+  }, []);
 
   const handleBackToQuiz = () => {
     window.location.href = './index.html';
@@ -118,6 +181,17 @@ export const HomeApp: React.FC = () => {
     user?.arranged_photo_url ||
     user?.photo_url ||
     null;
+
+  if (!authClient.isAuthenticated() && !(typeof window !== 'undefined' && window.location.hash.includes('access_token'))) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center p-6 select-none ${
+        isDarkMode ? 'bg-neutral-950 text-white' : 'bg-neutral-50 text-neutral-900'
+      }`}>
+        <Loader2 className="w-8 h-8 text-[#4285f4] animate-spin mb-3" />
+        <p className="text-sm font-medium tracking-wide opacity-80">認証状態を確認中...</p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -189,6 +263,15 @@ export const HomeApp: React.FC = () => {
             onStyleChange={handleStyleChange}
           />
         )}
+        {activeTab === 'dex' && (
+          <MoffyDexTab
+            user={user}
+            session={session}
+            friends={friends}
+            isDarkMode={isDarkMode}
+            onGoToExchange={() => setActiveTab('exchange')}
+          />
+        )}
         {activeTab === 'exchange' && (
           <FriendExchangeTab
             user={user}
@@ -212,7 +295,9 @@ export const HomeApp: React.FC = () => {
             user={user}
             session={session}
             isDarkMode={isDarkMode}
+            friends={friends}
             onGoToExchange={() => setActiveTab('exchange')}
+            onGoToDex={() => setActiveTab('dex')}
           />
         )}
       </main>

@@ -202,7 +202,8 @@ export const OAuthApp: React.FC = () => {
    * 通常サインイン / 新規登録 / Googleオンボーディング登録
    */
   const handleIntroContinue = async (data: OnboardingData) => {
-    if (isSubmitting) return;
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     setErrorMsg(null);
 
@@ -210,6 +211,9 @@ export const OAuthApp: React.FC = () => {
       if (data.authMode === 'signin') {
         // 既存ユーザー サインイン
         const { user, token } = await loginUser(data.discordUserId, data.password || '');
+        if (!user.photo_url && data.discordAvatarUrl) {
+          user.photo_url = data.discordAvatarUrl;
+        }
         handleAuthSuccess(user, token);
       } else if (data.authMode === 'google_onboarding') {
         // Google 初回オンボーディング登録
@@ -222,7 +226,7 @@ export const OAuthApp: React.FC = () => {
           nickname: data.nickname,
           grade: data.grade,
           university: data.university,
-          photo: data.uploadedPhoto,
+          photo: data.uploadedPhoto, // 手動アップロードしたモッフィー画像のみ (DiscordアイコンはFirebase非保存)
         });
 
         if (!res.user) {
@@ -235,18 +239,19 @@ export const OAuthApp: React.FC = () => {
           last_name: res.user.last_name || data.lastName || null,
           first_name: res.user.first_name || data.firstName || null,
           nickname: res.user.nickname || data.nickname || null,
-          photo_url: res.user.photo_url || null,
+          photo_url: res.user.photo_url || data.discordAvatarUrl || null,
           default_photo_url: res.user.default_photo_url || null,
           arranged_photo_url: res.user.arranged_photo_url || null,
-          grade: res.user.grade || data.grade,
-          university: res.user.university || data.university,
+          grade: res.user.grade || data.grade || null,
+          university: res.user.university || data.university || null,
           is_staff: !!res.user.is_staff,
-          created_at: res.user.created_at,
-          updated_at: res.user.updated_at,
-          google_id: res.user.google_id || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          google_id: null,
+          mbti: extractMbtiFromUrl(res.user.photo_url || res.user.arranged_photo_url || res.user.default_photo_url),
         };
 
-        handleAuthSuccess(userResult, res.access_token);
+        handleAuthSuccess(userResult, res.access_token || null);
       } else {
         // 通常新規登録 (サインアップ)
         const result = await registerUserProfile(data.discordUserId, data.password || '', {
@@ -256,7 +261,7 @@ export const OAuthApp: React.FC = () => {
           nickname: data.nickname,
           grade: data.grade,
           university: data.university,
-          photoBlob: data.uploadedPhoto,
+          photoBlob: data.uploadedPhoto, // 手動アップロードしたモッフィー画像のみ (DiscordアイコンはFirebase非保存)
         });
 
         if (!result.name && data.name) {
@@ -271,6 +276,9 @@ export const OAuthApp: React.FC = () => {
         if (!result.nickname && data.nickname) {
           result.nickname = data.nickname;
         }
+        if (!result.photo_url && data.discordAvatarUrl) {
+          result.photo_url = data.discordAvatarUrl;
+        }
 
         handleAuthSuccess(result, null);
       }
@@ -278,6 +286,7 @@ export const OAuthApp: React.FC = () => {
       console.error('Auth submit error:', err);
       const message = err instanceof Error ? err.message : '認証処理中にエラーが発生しました';
       setErrorMsg(message);
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };

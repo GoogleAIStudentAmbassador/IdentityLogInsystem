@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import confetti from 'canvas-confetti';
 import {
   Sparkles,
   ArrowRight,
@@ -10,12 +11,14 @@ import {
   GraduationCap,
   Home,
   UserPlus,
+  BookOpen,
 } from 'lucide-react';
 import type { MbtiType, SnsPlatform, SnsLinkItem, FriendItem } from './types';
 import { MBTI_ARCHETYPES } from './data/personalityQuestions';
 import { resolveSnsUrl } from './utils/snsUtils';
 import { MoffyAuthClient } from './utils/oauthClient';
-import { getPublicProfile, getGameProgress, addFriend, extractMbtiFromUrl } from './services/api';
+import { isNewDexDiscovery } from './utils/dexUtils';
+import { getPublicProfile, getGameProgress, addFriend, getFriendList, extractMbtiFromUrl } from './services/api';
 
 const THEME_STORAGE_KEY = 'moffy_theme_mode';
 
@@ -91,12 +94,17 @@ export const ShareApp: React.FC = () => {
     return [];
   });
 
-  // フレンド追加完了ステート
+  // フレンド追加完了ステート ＆ 図鑑新規発見ステート
   const [friendAdded, setFriendAdded] = useState<boolean>(false);
+  const [isNewDiscovery, setIsNewDiscovery] = useState<boolean>(false);
 
   const authClient = useMemo(() => new MoffyAuthClient({ clientId: 'moffy-share' }), []);
   const currentUser = authClient.getUser();
   const currentUserId = currentUser?.discord_user_id || null;
+  const currentUserMbti = (currentUser?.mbti || null) as MbtiType | null;
+
+  // 二重実行防止ガード（レースコンディション対策）
+  const hasExecutedRef = useRef<boolean>(false);
 
   // 最新プロフィールおよび追加情報の非同期取得 ＆ 自動フレンド登録
   useEffect(() => {
@@ -104,24 +112,54 @@ export const ShareApp: React.FC = () => {
 
     async function syncAndFriend() {
       if (!targetDiscordId || targetDiscordId === 'Ambassador') return;
+      if (hasExecutedRef.current) return;
+      hasExecutedRef.current = true;
+
+      let finalNick = initialNickname;
+      let finalName = initialName;
+      let finalUniv = initialUniv;
+      let finalGrade = initialGrade;
+      let finalPhoto = initialPhoto;
+      let finalMbti = initialMbti;
+      let finalBirthday = initialBirthday;
+      let finalShowBirthday = initialShowBirthday;
+      let finalSns = snsLinks;
 
       // 1. APIから最新プロフィール取得
       try {
         const publicProfile = await getPublicProfile(targetDiscordId);
         if (publicProfile && isMounted) {
-          if (publicProfile.nickname) setNickname(publicProfile.nickname);
-          if (publicProfile.name) setName(publicProfile.name);
-          if (publicProfile.university) setUniversity(publicProfile.university);
-          if (publicProfile.grade) setGrade(String(publicProfile.grade));
+          if (publicProfile.nickname && publicProfile.nickname.trim()) {
+            finalNick = publicProfile.nickname.trim();
+            finalName = '';
+            setNickname(finalNick);
+            // 🌟 ニックネーム設定時は、URLパラメータやAPI由来の本名を即座に消去し非公開を物理的に徹底
+            setName('');
+          } else if (publicProfile.name) {
+            finalName = publicProfile.name;
+            setName(finalName);
+          }
+          if (publicProfile.university) {
+            finalUniv = publicProfile.university;
+            setUniversity(finalUniv);
+          }
+          if (publicProfile.grade) {
+            finalGrade = String(publicProfile.grade);
+            setGrade(finalGrade);
+          }
 
           const bestPhoto =
             publicProfile.arranged_photo_url ||
             publicProfile.default_photo_url ||
             publicProfile.photo_url;
           if (bestPhoto) {
+            finalPhoto = bestPhoto;
             setPhotoUrl(bestPhoto);
             const extracted = extractMbtiFromUrl(bestPhoto);
-            if (extracted) setMbti(extracted);
+            if (extracted) {
+              finalMbti = extracted;
+              setMbti(extracted);
+            }
           }
         }
       } catch (err) {
@@ -132,42 +170,65 @@ export const ShareApp: React.FC = () => {
       try {
         const profileExt = await getGameProgress<any>('moffy_profile_ext', targetDiscordId);
         if (profileExt && isMounted) {
-          if (profileExt.birthday) setBirthday(profileExt.birthday);
-          if (typeof profileExt.showBirthday === 'boolean') setShowBirthday(profileExt.showBirthday);
+          if (profileExt.birthday) {
+            finalBirthday = profileExt.birthday;
+            setBirthday(finalBirthday);
+          }
+          if (typeof profileExt.showBirthday === 'boolean') {
+            finalShowBirthday = profileExt.showBirthday;
+            setShowBirthday(finalShowBirthday);
+          }
           if (Array.isArray(profileExt.snsLinks) && profileExt.snsLinks.length > 0) {
-            setSnsLinks(profileExt.snsLinks);
+            finalSns = profileExt.snsLinks;
+            setSnsLinks(finalSns);
           }
         }
       } catch (err) {
         console.warn('Failed to fetch profile ext:', err);
       }
 
-      // 3. ログイン中の閲覧者がいる場合、DBにフレンド関係を自動永続化
+      // 3. ログイン中の閲覧者がいる場合、DBにフレンド関係を自動永続化 ＆ モッフィー図鑑の新規発見判定
       if (currentUserId && currentUserId !== targetDiscordId) {
         try {
-          const hasNick = !!(nickname && nickname.trim());
+          // 既存のフレンド一覧を取得して新規発見判定
+          const existingFriends = await getFriendList(currentUserId).catch(() => []);
+          const newlyDiscovered = isNewDexDiscovery(finalMbti, currentUserMbti, existingFriends);
+
+          const hasNick = !!(finalNick && finalNick.trim());
           const friendPayload: FriendItem = {
             discord_user_id: targetDiscordId,
-            name: hasNick ? null : (name || null),
+            name: hasNick ? null : (finalName || null),
             lastName: hasNick ? null : (initialLastName || null),
             firstName: hasNick ? null : (initialFirstName || null),
-            nickname: nickname || null,
-            mbti,
-            photoUrl: photoUrl || null,
-            university: university || null,
-            grade: grade || null,
-            birthday: birthday || null,
-            showBirthday,
-            snsLinks,
+            nickname: finalNick || null,
+            mbti: finalMbti,
+            photoUrl: finalPhoto || null,
+            university: finalUniv || null,
+            grade: finalGrade || null,
+            birthday: finalBirthday || null,
+            showBirthday: finalShowBirthday,
+            snsLinks: finalSns,
             addedAt: new Date().toISOString(),
           };
 
           const ok = await addFriend(currentUserId, friendPayload);
           if (ok && isMounted) {
             setFriendAdded(true);
+            if (newlyDiscovered) {
+              setIsNewDiscovery(true);
+              try {
+                confetti({
+                  particleCount: 75,
+                  spread: 60,
+                  origin: { y: 0.6 },
+                });
+              } catch {
+                // ignore
+              }
+            }
           }
         } catch (e) {
-          console.warn('Auto add friend failed:', e);
+          console.warn('Auto add friend or dex discovery check failed:', e);
         }
       }
     }
@@ -177,7 +238,7 @@ export const ShareApp: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [targetDiscordId, currentUserId, name, nickname, mbti, photoUrl, university, grade, birthday, showBirthday, snsLinks, initialLastName, initialFirstName]);
+  }, [targetDiscordId, currentUserId, currentUserMbti, initialNickname, initialName, initialUniv, initialGrade, initialPhoto, initialMbti, initialBirthday, initialShowBirthday, snsLinks, initialLastName, initialFirstName]);
 
   const archetype = MBTI_ARCHETYPES[mbti] || MBTI_ARCHETYPES.INTJ;
   const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
@@ -254,6 +315,13 @@ export const ShareApp: React.FC = () => {
                 <Sparkles className="w-4 h-4" />
                 <span>新しいアンバサダーを見つけたよ！！</span>
               </div>
+
+              {isNewDiscovery && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 mb-2">
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>モッフィー図鑑に新性格が登録されたよ！</span>
+                </div>
+              )}
 
               {/* 水晶玉の中で浮遊する相手のモッフィー */}
               <div className="relative my-4 flex items-center justify-center w-64 h-64">
@@ -438,17 +506,49 @@ export const ShareApp: React.FC = () => {
                 </div>
               )}
 
-              {/* フレンド登録完了バッジ */}
+              {/* フレンド登録完了バッジ ＆ 図鑑新規登録告知 */}
               {friendAdded && (
-                <div className="mt-5 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-center justify-center gap-2 font-medium">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>フレンドに追加されました</span>
+                <div className="mt-5 space-y-2.5">
+                  <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-center justify-center gap-2 font-medium">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>フレンドに追加されました</span>
+                  </div>
+
+                  {isNewDiscovery && (
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs flex items-center justify-between gap-3 shadow-xs">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+                          <BookOpen className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <div className="min-w-0 text-left">
+                          <span className="font-bold block truncate">モッフィー図鑑に新登録！</span>
+                          <span className="text-[11px] opacity-80 block truncate">
+                            {archetype.title} ({mbti}) が解放されました
+                          </span>
+                        </div>
+                      </div>
+                      <a
+                        href="./home.html?tab=dex"
+                        className="px-3 py-1.5 rounded-xl bg-amber-500 text-white font-semibold text-xs hover:bg-amber-600 transition shrink-0 shadow-xs cursor-pointer"
+                      >
+                        図鑑を見る
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* ナビゲーションリンク */}
             <div className="w-full space-y-2 pt-2">
+              <a
+                href="./home.html?tab=dex"
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition cursor-pointer border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              >
+                <BookOpen className="w-4 h-4 text-google-blue" />
+                <span>モッフィー図鑑を確認する</span>
+              </a>
+
               <a
                 href="./home.html"
                 className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition cursor-pointer border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800"

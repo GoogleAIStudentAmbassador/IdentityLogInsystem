@@ -528,10 +528,10 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           />
         </div>
 
-        {/* 固定メタデータ（Discord ID & パートナーモッフィー） */}
+        {/* 固定メタデータ（Discord ユーザー名 & パートナーモッフィー） */}
         <div className={`pt-2 border-t space-y-2 text-[11px] ${isDarkMode ? 'border-neutral-800' : 'border-neutral-100'}`}>
           <div className="flex justify-between items-center py-1">
-            <span className={isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}>Discord ID</span>
+            <span className={isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}>Discord ユーザー名</span>
             <span className={`font-mono font-medium ${isDarkMode ? 'text-neutral-200' : 'text-neutral-800'}`}>
               @{discordId}
             </span>

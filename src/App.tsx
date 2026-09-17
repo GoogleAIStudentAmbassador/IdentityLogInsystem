@@ -101,6 +101,42 @@ export const App: React.FC = () => {
   const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
   const [quizRevealedCount, setQuizRevealedCount] = useState<number>(1);
 
+  // 🌟 回答連打時の非同期状態競合・巻き戻り防止のためのデバウンスタイマー
+  const progressSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestProgressRef = React.useRef<{ answers: Record<number, number>; revealed: number } | null>(null);
+
+  const handleQuizProgressChange = React.useCallback((answers: Record<number, number>, revealed: number) => {
+    setQuizAnswers(answers);
+    setQuizRevealedCount(revealed);
+    latestProgressRef.current = { answers, revealed };
+
+    if (!discordUserId) return;
+
+    if (progressSaveTimerRef.current) {
+      clearTimeout(progressSaveTimerRef.current);
+    }
+
+    progressSaveTimerRef.current = setTimeout(() => {
+      if (latestProgressRef.current && discordUserId) {
+        savePersonalityQuizProgress(
+          discordUserId,
+          latestProgressRef.current.answers,
+          latestProgressRef.current.revealed
+        ).catch((err) => {
+          console.warn('[savePersonalityQuizProgress] Debounced sync warning:', err);
+        });
+      }
+    }, 350);
+  }, [discordUserId]);
+
+  useEffect(() => {
+    return () => {
+      if (progressSaveTimerRef.current) {
+        clearTimeout(progressSaveTimerRef.current);
+      }
+    };
+  }, []);
+
   // OAuth 2.0 クライアントの初期化
   const authClient = useMemo(() => {
     return new MoffyAuthClient({
@@ -674,13 +710,7 @@ export const App: React.FC = () => {
             questions={PERSONALITY_QUESTIONS}
             initialAnswers={quizAnswers}
             initialRevealedCount={quizRevealedCount}
-            onProgressChange={(answers, revealed) => {
-              setQuizAnswers(answers);
-              setQuizRevealedCount(revealed);
-              if (discordUserId) {
-                savePersonalityQuizProgress(discordUserId, answers, revealed).catch(() => {});
-              }
-            }}
+            onProgressChange={handleQuizProgressChange}
             onFinish={handleQuizFinish}
             onDarknessChange={(isDark) => setIsDarkTheme(isDark)}
           />

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Home, User, Users } from 'lucide-react';
+import { Home, User, Users, BookOpen } from 'lucide-react';
 
-export type MainTab = 'home' | 'exchange' | 'profile' | 'friends';
+export type MainTab = 'home' | 'dex' | 'exchange' | 'profile' | 'friends';
 
 interface FloatingBottomNavProps {
   activeTab: MainTab;
@@ -17,23 +17,23 @@ export const FloatingBottomNav: React.FC<FloatingBottomNavProps> = ({
   isDarkMode,
 }) => {
   return (
-    <div className="fixed bottom-5 inset-x-0 mx-auto w-fit z-40 flex justify-center pointer-events-none px-4">
+    <div className="fixed bottom-5 inset-x-0 mx-auto w-fit z-40 flex justify-center pointer-events-none px-2 sm:px-4">
       <nav
         aria-label="Navigation Select Bar"
-        className={`pointer-events-auto rounded-full p-1.5 flex items-center gap-1.5 sm:gap-2 transition-all shadow-[0_12px_36px_rgba(0,0,0,0.25)] border backdrop-blur-md ${
+        className={`pointer-events-auto rounded-full p-1 sm:p-1.5 flex items-center gap-1 sm:gap-1.5 transition-all shadow-[0_12px_36px_rgba(0,0,0,0.25)] border backdrop-blur-md ${
           isDarkMode
-            ? 'bg-neutral-900/90 border-neutral-800 text-neutral-100'
-            : 'bg-white/90 border-neutral-200 text-neutral-900'
+            ? 'bg-neutral-900/95 border-neutral-800 text-neutral-100'
+            : 'bg-white/95 border-neutral-200 text-neutral-900'
         }`}
       >
         {/* 1. ホーム（アイコンのみ） */}
         <button
           onClick={() => onChangeTab('home')}
-          className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+          className={`relative w-11 h-11 sm:w-12 sm:h-12 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
             activeTab === 'home'
               ? isDarkMode
-                ? 'bg-neutral-800 text-white shadow-xs'
-                : 'bg-neutral-100 text-neutral-900 shadow-xs'
+                ? 'bg-neutral-800 text-white shadow-xs ring-1 ring-white/20'
+                : 'bg-neutral-100 text-neutral-900 shadow-xs ring-1 ring-neutral-300'
               : isDarkMode
                 ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40'
                 : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100/60'
@@ -44,14 +44,32 @@ export const FloatingBottomNav: React.FC<FloatingBottomNavProps> = ({
           <Home className="w-5 h-5 fill-current" />
         </button>
 
-        {/* 2. フレンド交換（真ん中・Google AI Ambassadorシンボル・アイコンのみ） */}
+        {/* 2. モッフィー図鑑（アイコンのみ） */}
+        <button
+          onClick={() => onChangeTab('dex')}
+          className={`relative w-11 h-11 sm:w-12 sm:h-12 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+            activeTab === 'dex'
+              ? isDarkMode
+                ? 'bg-neutral-800 text-white shadow-xs ring-1 ring-white/20'
+                : 'bg-neutral-100 text-neutral-900 shadow-xs ring-1 ring-neutral-300'
+              : isDarkMode
+                ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40'
+                : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100/60'
+          }`}
+          aria-label="モッフィー図鑑"
+          title="モッフィー図鑑"
+        >
+          <BookOpen className="w-5 h-5" />
+        </button>
+
+        {/* 3. フレンド交換（真ん中・Google AI Ambassadorシンボル・アイコンのみ） */}
         <button
           onClick={() => onChangeTab('exchange')}
-          className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+          className={`relative w-11 h-11 sm:w-12 sm:h-12 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
             activeTab === 'exchange'
               ? isDarkMode
-                ? 'bg-neutral-800 text-white shadow-xs'
-                : 'bg-neutral-100 text-neutral-900 shadow-xs'
+                ? 'bg-neutral-800 text-white shadow-xs ring-1 ring-white/20'
+                : 'bg-neutral-100 text-neutral-900 shadow-xs ring-1 ring-neutral-300'
               : isDarkMode
                 ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40'
                 : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100/60'
@@ -71,14 +89,14 @@ export const FloatingBottomNav: React.FC<FloatingBottomNavProps> = ({
           </div>
         </button>
 
-        {/* 3. プロフィール（アイコンのみ） */}
+        {/* 4. プロフィール（アイコンのみ） */}
         <button
           onClick={() => onChangeTab('profile')}
-          className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+          className={`relative w-11 h-11 sm:w-12 sm:h-12 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
             activeTab === 'profile'
               ? isDarkMode
-                ? 'bg-neutral-800 text-white shadow-xs'
-                : 'bg-neutral-100 text-neutral-900 shadow-xs'
+                ? 'bg-neutral-800 text-white shadow-xs ring-1 ring-white/20'
+                : 'bg-neutral-100 text-neutral-900 shadow-xs ring-1 ring-neutral-300'
               : isDarkMode
                 ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40'
                 : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100/60'
@@ -95,14 +113,14 @@ export const FloatingBottomNav: React.FC<FloatingBottomNavProps> = ({
           </div>
         </button>
 
-        {/* 4. フレンド一覧（プロフィールの右隣・フレンドロゴ Users・アイコンのみ） */}
+        {/* 5. フレンド一覧（プロフィールの右隣・フレンドロゴ Users・アイコンのみ） */}
         <button
           onClick={() => onChangeTab('friends')}
-          className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+          className={`relative w-11 h-11 sm:w-12 sm:h-12 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
             activeTab === 'friends'
               ? isDarkMode
-                ? 'bg-neutral-800 text-white shadow-xs'
-                : 'bg-neutral-100 text-neutral-900 shadow-xs'
+                ? 'bg-neutral-800 text-white shadow-xs ring-1 ring-white/20'
+                : 'bg-neutral-100 text-neutral-900 shadow-xs ring-1 ring-neutral-300'
               : isDarkMode
                 ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40'
                 : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100/60'
