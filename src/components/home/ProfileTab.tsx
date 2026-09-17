@@ -7,6 +7,7 @@ import { SNS_PLATFORMS, detectPlatformFromUrl, sanitizeTextInput } from '../../u
 import { saveGameProgress, getGameProgress } from '../../services/api';
 import { generateProfileCardBlob } from '../../utils/cardGenerator';
 import { getDiscord2FaStatus, formatRemaining2FaTime } from '../../services/discord2fa';
+import { getDiscordAvatarUrl } from '../../services/discordApi';
 
 interface ProfileTabProps {
   user: AuthUser | null;
@@ -534,9 +535,21 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
         <div className={`pt-2 border-t space-y-2 text-[11px] ${isDarkMode ? 'border-neutral-800' : 'border-neutral-100'}`}>
           <div className="flex justify-between items-center py-1">
             <span className={isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}>Discord ユーザー名</span>
-            <span className={`font-mono font-medium ${isDarkMode ? 'text-neutral-200' : 'text-neutral-800'}`}>
-              @{discordId}
-            </span>
+            <div className="flex items-center gap-2">
+              {discordId && discordId !== 'Ambassador' && (
+                <img
+                  src={getDiscordAvatarUrl(discordId, 64)}
+                  alt="Discord Avatar"
+                  className="w-5 h-5 rounded-full object-cover border border-white/20 bg-neutral-800 shrink-0"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                />
+              )}
+              <span className={`font-mono font-medium ${isDarkMode ? 'text-neutral-200' : 'text-neutral-800'}`}>
+                @{discordId}
+              </span>
+            </div>
           </div>
           <div className="flex justify-between items-center py-1">
             <span className={isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}>二段階認証 (本人確認)</span>

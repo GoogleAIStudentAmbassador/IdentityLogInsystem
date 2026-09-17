@@ -27,50 +27,78 @@ export interface Discord2FaStatus {
 }
 
 const STORAGE_KEY_PREFIX = 'moffy_discord_2fa_';
-const V1_MIGRATION_KEY = 'moffy_2fa_v1_initialized';
+const V2_MIGRATION_KEY = 'moffy_2fa_v2_reset_all_forced_20260917';
 export const TWO_FACTOR_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7日間（1週間）
 
 /**
- * 既存ユーザーの2FAフラグ初期化（既存ユーザーは一旦 False に設定）
+ * 全ユーザーの 2FA フラグを強制的に False（未認証）にリセット
+ */
+export function resetAllUsers2Fa(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const keys = Object.keys(localStorage);
+
+    // 1. 全 2FA レコードの isVerified を false に初期化
+    for (const key of keys) {
+      if (key.startsWith(STORAGE_KEY_PREFIX)) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            parsed.isVerified = false;
+            parsed.verifiedAt = 0;
+            parsed.expiresAt = 0;
+            localStorage.setItem(key, JSON.stringify(parsed));
+          } catch {
+            // ignore
+          }
+        }
+      } else if (key.startsWith('moffy_user_session_')) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            parsed.isDiscordVerified = false;
+            parsed.discordVerifiedAt = null;
+            localStorage.setItem(key, JSON.stringify(parsed));
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+
+    // 2. 既存の OAuth セッションの 2FA フラグも確実に false に設定
+    const oauthSessionRaw = localStorage.getItem('moffy_oauth_session');
+    if (oauthSessionRaw) {
+      try {
+        const parsed = JSON.parse(oauthSessionRaw);
+        if (parsed.user) {
+          parsed.user.is_discord_verified = false;
+          parsed.user.discord_verified_at = null;
+        }
+        localStorage.setItem('moffy_oauth_session', JSON.stringify(parsed));
+      } catch {
+        // ignore
+      }
+    }
+
+    console.info('[2FA] All users 2FA status successfully reset to False.');
+  } catch (e) {
+    console.warn('[2FA] Failed to reset all users 2FA status:', e);
+  }
+}
+
+/**
+ * 既存ユーザーの2FAフラグ初期化（全ユーザー初期状態で一旦 False に設定）
  */
 export function initializeExistingUsers2Fa(): void {
   if (typeof window === 'undefined') return;
   try {
-    const isInitialized = localStorage.getItem(V1_MIGRATION_KEY);
+    const isInitialized = localStorage.getItem(V2_MIGRATION_KEY);
     if (!isInitialized) {
-      // 1. 既存の 2FA キーがあれば全て isVerified を false にリセット
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(STORAGE_KEY_PREFIX)) {
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            try {
-              const parsed = JSON.parse(raw);
-              parsed.isVerified = false;
-              localStorage.setItem(key, JSON.stringify(parsed));
-            } catch {
-              // ignore
-            }
-          }
-        }
-      }
-
-      // 2. 既存の OAuth セッションの 2FA フラグも確実に false に設定
-      const oauthSessionRaw = localStorage.getItem('moffy_oauth_session');
-      if (oauthSessionRaw) {
-        try {
-          const parsed = JSON.parse(oauthSessionRaw);
-          if (parsed.user) {
-            parsed.user.is_discord_verified = false;
-            parsed.user.discord_verified_at = null;
-          }
-          localStorage.setItem('moffy_oauth_session', JSON.stringify(parsed));
-        } catch {
-          // ignore
-        }
-      }
-
-      localStorage.setItem(V1_MIGRATION_KEY, 'true');
+      resetAllUsers2Fa();
+      localStorage.setItem(V2_MIGRATION_KEY, 'true');
     }
   } catch (e) {
     console.warn('[2FA] Failed to initialize existing users 2FA flag:', e);

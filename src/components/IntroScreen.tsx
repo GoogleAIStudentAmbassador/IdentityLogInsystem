@@ -14,10 +14,19 @@ import {
   Eye,
   EyeOff,
   X,
+  ExternalLink,
+  Clock,
 } from 'lucide-react';
 import { OrbitingStars } from './OrbitingStars';
 import { verifyMoffyImage, fetchAuthConfig } from '../services/api';
-import { verifyDiscordUser, type DiscordUserVerification } from '../services/discordApi';
+import {
+  verifyDiscordUser,
+  startDiscord2FaAuth,
+  checkDiscord2FaAuthStatus,
+  cancelDiscord2FaAuth,
+  getDiscordAvatarUrl,
+  type DiscordUserVerification,
+} from '../services/discordApi';
 import {
   getDiscord2FaStatus,
   saveDiscord2FaVerification,
@@ -137,7 +146,101 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     return null;
   });
 
-  // Discord サーバー在籍確認（本人確認・二段階認証）
+  // 常設ボタン式 2FA セッションステート
+  interface PendingInteractive2Fa {
+    userName: string;
+    panelUrl: string;
+    expiresIn: number;
+    expiresAt: number;
+    displayname?: string;
+    avatarUrl?: string;
+  }
+  const [pending2FaSession, setPending2FaSession] = useState<PendingInteractive2Fa | null>(null);
+  const [pending2FaRemainingSeconds, setPending2FaRemainingSeconds] = useState<number | null>(null);
+
+  // カウントダウンタイマー
+  useEffect(() => {
+    if (!pending2FaSession) {
+      setPending2FaRemainingSeconds(null);
+      return;
+    }
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.floor((pending2FaSession.expiresAt - Date.now()) / 1000));
+      setPending2FaRemainingSeconds(remaining);
+      if (remaining <= 0) {
+        setPending2FaSession(null);
+        setDiscordVerifyError('二段階認証の有効期限が切れました。再度「本人確認へ進む」を押してください。');
+      }
+    };
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [pending2FaSession]);
+
+  // 常設ボタン押下のリアルタイムポーリング検知
+  useEffect(() => {
+    if (!pending2FaSession) return;
+
+    let isMounted = true;
+    const interval = setInterval(async () => {
+      if (Date.now() >= pending2FaSession.expiresAt) {
+        if (isMounted) {
+          setPending2FaSession(null);
+          setDiscordVerifyError('二段階認証の有効期限が切れました。再度「本人確認へ進む」を押してください。');
+        }
+        clearInterval(interval);
+        return;
+      }
+
+      try {
+        const statusRes = await checkDiscord2FaAuthStatus(pending2FaSession.userName, false);
+        if (!isMounted) return;
+
+        if (statusRes.status === 'approved') {
+          clearInterval(interval);
+          const avatar = pending2FaSession.avatarUrl || getDiscordAvatarUrl(pending2FaSession.userName);
+          const savedRecord = saveDiscord2FaVerification(pending2FaSession.userName, {
+            isAlive: true,
+            user_name: pending2FaSession.userName,
+            displayname: statusRes.displayname || pending2FaSession.displayname,
+            avatar_url: avatar,
+          });
+          setDiscord2FaStatus({
+            isVerified: true,
+            record: savedRecord,
+            remainingMs: TWO_FACTOR_EXPIRY_MS,
+            isExpired: false,
+          });
+          setDiscordVerifiedData({
+            isAlive: true,
+            user_name: pending2FaSession.userName,
+            displayname: statusRes.displayname || pending2FaSession.displayname,
+            avatar_url: avatar,
+          });
+          setDiscordId(pending2FaSession.userName);
+          const resolvedDisplay = statusRes.displayname || pending2FaSession.displayname;
+          if (resolvedDisplay) {
+            setNickname((prev) => prev || resolvedDisplay);
+          }
+          setPending2FaSession(null);
+          setDiscordVerifyError(null);
+        } else if (statusRes.status === 'expired') {
+          clearInterval(interval);
+          setPending2FaSession(null);
+          setDiscordVerifyError('二段階認証の有効期限が切れました。再度お試しください。');
+        }
+      } catch (err) {
+        console.warn('[2FA Poll] Non-fatal polling warning:', err);
+      }
+    }, 2500);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [pending2FaSession]);
+
+  // Discord サーバー在籍確認 & 常設ボタン式二段階認証の開始
   const handleVerifyDiscord = async () => {
     const cleanName = discordId.trim().replace(/^@/, '');
     if (!cleanName) {
@@ -150,9 +253,22 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     setError(null);
 
     try {
+      // 1. サーバー在籍確認
       const res = await verifyDiscordUser(cleanName);
-      if (res.isAlive && res.user_name) {
-        // 2FAフラグおよび有効期限（1週間）を永続化保存
+      if (!res.isAlive || !res.user_name) {
+        resetDiscord2FaStatus(cleanName);
+        setDiscord2FaStatus({ isVerified: false });
+        setDiscordVerifiedData(null);
+        const msg =
+          res.message ||
+          '指定された Discord ユーザー名が見つかりませんでした。Google AI Student Ambassador 公式サーバーに参加しているかご確認ください。';
+        setDiscordVerifyError(msg);
+        return;
+      }
+
+      // 2. 常設ボタン式 2FA セッションの開始要求
+      const authReq = await startDiscord2FaAuth(cleanName, 180);
+      if (authReq.status === 'approved') {
         const savedRecord = saveDiscord2FaVerification(res.user_name, res);
         setDiscord2FaStatus({
           isVerified: true,
@@ -164,18 +280,21 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
         setDiscordId(res.user_name);
         setDiscordVerifyError(null);
 
-        // サインアップ時、ニックネームが未入力ならDiscordの表示名を自動補填
         if (!nickname && res.displayname) {
           setNickname(res.displayname);
         }
+      } else if (authReq.status === 'pending') {
+        setPending2FaSession({
+          userName: cleanName,
+          panelUrl: authReq.panel_url || '',
+          expiresIn: authReq.expires_in || 180,
+          expiresAt: Date.now() + (authReq.expires_in || 180) * 1000,
+          displayname: res.displayname,
+          avatarUrl: res.avatar_url || getDiscordAvatarUrl(cleanName),
+        });
+        setDiscordVerifyError(null);
       } else {
-        resetDiscord2FaStatus(cleanName);
-        setDiscord2FaStatus({ isVerified: false });
-        setDiscordVerifiedData(null);
-        const msg =
-          res.message ||
-          '指定された Discord ユーザー名が見つかりませんでした。Google AI Student Ambassador 公式サーバーに参加しているかご確認ください。';
-        setDiscordVerifyError(msg);
+        setDiscordVerifyError(authReq.message || '二段階認証の開始に失敗しました。');
       }
     } catch (err: unknown) {
       console.error('Discord verification failed:', err);
@@ -186,10 +305,20 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     }
   };
 
+  const handleCancel2FaSession = async () => {
+    if (pending2FaSession) {
+      await cancelDiscord2FaAuth(pending2FaSession.userName).catch(() => {});
+      setPending2FaSession(null);
+      setDiscordVerifyError(null);
+    }
+  };
+
   const handleResetDiscordVerification = () => {
     if (discordId) {
       resetDiscord2FaStatus(discordId);
+      cancelDiscord2FaAuth(discordId).catch(() => {});
     }
+    setPending2FaSession(null);
     setDiscordVerifiedData(null);
     setDiscord2FaStatus({ isVerified: false });
     setDiscordVerifyError(null);
@@ -908,73 +1037,140 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
               </div>
 
               {!isIdCompleted ? (
-                <div className="space-y-3">
-                  <div className="relative w-full">
-                    {/* 🌟 星々は現在アクティブな項目の周りを周回 */}
-                    {activeTarget === 'id' && <OrbitingStars count={5} isDark={true} />}
-
-                    <div className="relative flex items-center">
-                      <span className="absolute left-4 z-20 text-gray-400 font-mono text-base pointer-events-none">
-                        @
-                      </span>
-                      <input
-                        id="discordId"
-                        type="text"
-                        value={discordId.replace(/^@/, '')}
-                        onChange={(e) => handleDiscordIdChange(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleVerifyDiscord();
-                          }
-                        }}
-                        placeholder="ユーザー名を入力"
-                        autoComplete="off"
-                        autoFocus
-                        className="relative z-10 w-full h-14 pl-9 pr-5 rounded-full border-2 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium transition shadow-sm focus:outline-none border-gray-600 focus:border-google-blue"
-                      />
-                    </div>
-                  </div>
-
-                  {/* 本人確認へ進む ボタン */}
-                  <button
-                    type="button"
-                    onClick={handleVerifyDiscord}
-                    disabled={isDiscordVerifying || discordId.trim().replace(/^@/, '').length < 2}
-                    className="w-full h-12 rounded-full bg-google-blue/90 hover:bg-google-blue text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    {isDiscordVerifying ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin text-white" />
-                        <span>サーバー在籍を確認中...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheck className="w-4 h-4 text-white" />
-                        <span>本人確認へ進む</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* 本人確認エラー表示 */}
-                  {discordVerifyError && (
-                    <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex items-start gap-2.5 animate-fade-in">
-                      <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                      <div className="flex-1 leading-relaxed">
-                        <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
-                        <p className="text-red-300/90">{discordVerifyError}</p>
+                pending2FaSession ? (
+                  /* 🌟 API v2.0.0: Discord 常設ボタン式 2FA 待機カード */
+                  <div className="p-4 rounded-2xl bg-gray-900 border border-google-blue/40 shadow-xl space-y-4 animate-fade-in">
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-12 h-12 rounded-full overflow-hidden border border-google-blue/50 bg-gray-800 shrink-0">
+                        <img
+                          src={pending2FaSession.avatarUrl || getDiscordAvatarUrl(pending2FaSession.userName)}
+                          alt="Discord Avatar"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-white text-sm truncate">
+                            {pending2FaSession.displayname || pending2FaSession.userName}
+                          </span>
+                          <span className="text-[10px] text-google-blue font-mono bg-google-blue/10 px-1.5 py-0.5 rounded border border-google-blue/30 shrink-0">
+                            承認待機中
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400 font-mono truncate">
+                          @{pending2FaSession.userName}
+                        </p>
                       </div>
                     </div>
-                  )}
-                </div>
+
+                    <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-1 text-xs">
+                      <p className="text-white font-medium flex items-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-google-blue shrink-0" />
+                        <span>Discord公式サーバーで【承認】を押してください</span>
+                      </p>
+                      <p className="text-gray-400 text-[11px] leading-relaxed">
+                        常設認証パネルのボタンを押すと、自動的に認証が完了します。
+                      </p>
+                      {pending2FaRemainingSeconds !== null && (
+                        <div className="flex items-center gap-1 text-[11px] text-amber-400 font-mono pt-1">
+                          <Clock className="w-3 h-3" />
+                          <span>有効期限: 残り約{Math.floor(pending2FaRemainingSeconds / 60)}分{String(pending2FaRemainingSeconds % 60).padStart(2, '0')}秒</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {pending2FaSession.panelUrl && (
+                      <a
+                        href={pending2FaSession.panelUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full h-11 rounded-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-xs transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span>Discord 認証パネルを開く</span>
+                      </a>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleCancel2FaSession}
+                      className="w-full text-center text-xs text-gray-400 hover:text-white py-1 transition-colors cursor-pointer"
+                    >
+                      キャンセルして戻る
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="relative w-full">
+                      {/* 🌟 星々は現在アクティブな項目の周りを周回 */}
+                      {activeTarget === 'id' && <OrbitingStars count={5} isDark={true} />}
+
+                      <div className="relative flex items-center">
+                        <span className="absolute left-4 z-20 text-gray-400 font-mono text-base pointer-events-none">
+                          @
+                        </span>
+                        <input
+                          id="discordId"
+                          type="text"
+                          value={discordId.replace(/^@/, '')}
+                          onChange={(e) => handleDiscordIdChange(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleVerifyDiscord();
+                            }
+                          }}
+                          placeholder="ユーザー名を入力"
+                          autoComplete="off"
+                          autoFocus
+                          className="relative z-10 w-full h-14 pl-9 pr-5 rounded-full border-2 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium transition shadow-sm focus:outline-none border-gray-600 focus:border-google-blue"
+                        />
+                      </div>
+                    </div>
+
+                    {/* 本人確認へ進む ボタン */}
+                    <button
+                      type="button"
+                      onClick={handleVerifyDiscord}
+                      disabled={isDiscordVerifying || discordId.trim().replace(/^@/, '').length < 2}
+                      className="w-full h-12 rounded-full bg-google-blue/90 hover:bg-google-blue text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      {isDiscordVerifying ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-white" />
+                          <span>サーバー在籍を確認中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck className="w-4 h-4 text-white" />
+                          <span>本人確認へ進む</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* 本人確認エラー表示 */}
+                    {discordVerifyError && (
+                      <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex items-start gap-2.5 animate-fade-in">
+                        <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 leading-relaxed">
+                          <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
+                          <p className="text-red-300/90">{discordVerifyError}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
               ) : (
                 /* 認証済みカード表示（Discordアイコン・表示名・在籍確認バッジ） */
                 <div className="p-4 rounded-2xl bg-gray-900 border border-emerald-500/40 shadow-sm flex items-center justify-between gap-3 animate-fade-in">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="relative w-12 h-12 rounded-full overflow-hidden border border-emerald-400/50 bg-gray-800 shrink-0">
-                      {discordVerifiedData?.avatar_url ? (
+                      {discordVerifiedData?.avatar_url || getDiscordAvatarUrl(discordVerifiedData?.user_name) ? (
                         <img
-                          src={discordVerifiedData.avatar_url}
+                          src={discordVerifiedData?.avatar_url || getDiscordAvatarUrl(discordVerifiedData?.user_name)}
                           alt="Discord Avatar"
                           className="w-full h-full object-cover"
                         />

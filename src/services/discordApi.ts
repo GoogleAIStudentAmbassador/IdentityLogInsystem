@@ -13,6 +13,27 @@ export interface DiscordUserVerification {
   message?: string;
 }
 
+export type Discord2FaAuthStatus = 'pending' | 'approved' | 'expired' | 'none';
+
+export interface AuthRequestResponse {
+  status: 'pending' | 'approved' | 'expired';
+  user_name: string;
+  expires_in?: number | null;
+  panel_url?: string | null;
+  displayname?: string | null;
+  error?: string;
+  message?: string;
+}
+
+export interface AuthStatusResponse {
+  status: Discord2FaAuthStatus;
+  user_name: string;
+  displayname?: string | null;
+  expires_in?: number | null;
+  error?: string;
+  message?: string;
+}
+
 const DIRECT_API_URL = (
   import.meta.env.VITE_DISCORD_API_URL || 'http://100.92.228.70:8000'
 ).replace(/\/+$/, '');
@@ -23,11 +44,27 @@ const PROXY_API_URL = '/discord-api';
  * 開発環境 (import.meta.env.DEV) では CORS を回避するため Vite proxy (/discord-api) を優先し、
  * 本番環境・スタンドアロン実行時は環境変数または DIRECT_API_URL を使用します。
  */
-function getDiscordApiBaseUrl(): string {
+export function getDiscordApiBaseUrl(): string {
   if (import.meta.env.DEV) {
     return PROXY_API_URL;
   }
   return DIRECT_API_URL;
+}
+
+/**
+ * Discord ユーザーのアバター画像 URL を生成
+ * API v2.0.0: /api/users/{user_name}/avatar または /api/user/image
+ */
+export function getDiscordAvatarUrl(
+  userName?: string | null,
+  size: number = 256,
+  format: 'png' | 'webp' | 'jpeg' = 'png'
+): string {
+  if (!userName) return '';
+  const clean = userName.trim().replace(/^@/, '');
+  if (!clean) return '';
+  const base = getDiscordApiBaseUrl();
+  return `${base}/api/users/${encodeURIComponent(clean)}/avatar?size=${size}&format=${format}`;
 }
 
 /**
@@ -109,6 +146,12 @@ export async function verifyDiscordUser(userName: string): Promise<DiscordUserVe
       }
 
       const data: DiscordUserVerification = await res.json();
+      if (data.isAlive && data.user_name) {
+        // API v2.0.0 のアバターURLを自動付与
+        if (!data.avatar_url) {
+          data.avatar_url = getDiscordAvatarUrl(data.user_name);
+        }
+      }
       return data;
     } catch (err: unknown) {
       lastError = err instanceof Error ? err : new Error(String(err));
@@ -121,4 +164,175 @@ export async function verifyDiscordUser(userName: string): Promise<DiscordUserVe
     error: 'NETWORK_ERROR',
     message: 'Discord 在籍確認サーバーに接続できませんでした。Tailscale接続状態をご確認ください。',
   };
+}
+
+/**
+ * 常設ボタン式 二段階認証の開始要求 (POST /api/auth)
+ *
+ * @param userName Discord固有のユーザー名
+ * @param timeout 有効期限（秒、デフォルト: 180秒）
+ * @returns AuthRequestResponse (status: pending, panel_url など)
+ */
+export async function startDiscord2FaAuth(
+  userName: string,
+  timeout: number = 180
+): Promise<AuthRequestResponse> {
+  const cleanUserName = userName.trim().replace(/^@/, '');
+  if (!cleanUserName) {
+    return {
+      status: 'expired',
+      user_name: '',
+      error: 'USERNAME_REQUIRED',
+      message: 'Discord ユーザー名を入力してください',
+    };
+  }
+
+  const body = JSON.stringify({
+    user_name: cleanUserName,
+    timeout,
+    wait: false,
+  });
+
+  const endpoints = [
+    `${getDiscordApiBaseUrl()}/api/auth`,
+    `${DIRECT_API_URL}/api/auth`,
+  ];
+
+  let lastError: Error | null = null;
+
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok && res.status !== 400 && res.status !== 404) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      return data as AuthRequestResponse;
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  console.error('[Discord API] startDiscord2FaAuth failed:', lastError);
+  return {
+    status: 'expired',
+    user_name: cleanUserName,
+    error: 'NETWORK_ERROR',
+    message: '認証サーバーとの接続に失敗しました。Tailscale接続をご確認ください。',
+  };
+}
+
+/**
+ * 常設ボタン式 二段階認証ステータス確認 (GET /api/auth/{user_name})
+ *
+ * @param userName Discord固有のユーザー名
+ * @param wait 承認を同期待機するか (デフォルト: false)
+ * @param waitTimeout 同期待機秒数 (デフォルト: 5秒)
+ * @returns AuthStatusResponse (status: pending | approved | expired | none)
+ */
+export async function checkDiscord2FaAuthStatus(
+  userName: string,
+  wait: boolean = false,
+  waitTimeout: number = 5
+): Promise<AuthStatusResponse> {
+  const cleanUserName = userName.trim().replace(/^@/, '');
+  if (!cleanUserName) {
+    return {
+      status: 'none',
+      user_name: '',
+    };
+  }
+
+  const query = `wait=${wait}&wait_timeout=${waitTimeout}`;
+  const endpoints = [
+    `${getDiscordApiBaseUrl()}/api/auth/${encodeURIComponent(cleanUserName)}?${query}`,
+    `${DIRECT_API_URL}/api/auth/${encodeURIComponent(cleanUserName)}?${query}`,
+  ];
+
+  let lastError: Error | null = null;
+
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeoutSec = wait ? Math.max(8000, (waitTimeout + 3) * 1000) : 5000;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutSec);
+
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok && res.status !== 404 && res.status !== 400) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      return data as AuthStatusResponse;
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  console.warn('[Discord API] checkDiscord2FaAuthStatus warning:', lastError?.message);
+  return {
+    status: 'none',
+    user_name: cleanUserName,
+    error: 'NETWORK_ERROR',
+    message: 'ステータス確認サーバーへ接続できませんでした。',
+  };
+}
+
+/**
+ * 二段階認証セッションの解除・取り消し (DELETE /api/auth/{user_name})
+ */
+export async function cancelDiscord2FaAuth(userName: string): Promise<boolean> {
+  const cleanUserName = userName.trim().replace(/^@/, '');
+  if (!cleanUserName) return false;
+
+  const endpoints = [
+    `${getDiscordApiBaseUrl()}/api/auth/${encodeURIComponent(cleanUserName)}`,
+    `${DIRECT_API_URL}/api/auth/${encodeURIComponent(cleanUserName)}`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return false;
 }
