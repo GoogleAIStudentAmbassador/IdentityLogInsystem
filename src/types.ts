@@ -89,6 +89,9 @@ export interface RegistrationResult {
   updated_at: string;
   google_id?: string | null;
   mbti?: MbtiType | null;
+  is_discord_verified?: boolean;
+  discord_verified_at?: number | null;
+  discord_2fa_expires_at?: number | null;
 }
 
 export interface AuthConfigResponse {

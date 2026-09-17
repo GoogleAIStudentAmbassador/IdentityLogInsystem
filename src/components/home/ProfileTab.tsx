@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, RotateCcw, LogOut, Download, Plus, Trash2, Check, Save } from 'lucide-react';
+import { ShieldCheck, RotateCcw, LogOut, Download, Plus, Trash2, Check, Save, AlertTriangle } from 'lucide-react';
 import type { AuthUser } from '../../utils/oauthClient';
 import type { UserMoffySession, MbtiType, SnsLinkItem, SnsPlatform } from '../../types';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
 import { SNS_PLATFORMS, detectPlatformFromUrl, sanitizeTextInput } from '../../utils/snsUtils';
 import { saveGameProgress, getGameProgress } from '../../services/api';
 import { generateProfileCardBlob } from '../../utils/cardGenerator';
+import { getDiscord2FaStatus, formatRemaining2FaTime } from '../../services/discord2fa';
 
 interface ProfileTabProps {
   user: AuthUser | null;
@@ -41,6 +42,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const rawMbti = session?.mbti || user?.mbti || 'INTJ';
   const mbti: MbtiType = (rawMbti in MBTI_ARCHETYPES) ? (rawMbti as MbtiType) : 'INTJ';
   const archetype = MBTI_ARCHETYPES[mbti] || MBTI_ARCHETYPES.INTJ;
+  const twoFaStatus = getDiscord2FaStatus(discordId);
   const [cardDataUrl, setCardDataUrl] = useState<string | null>(() => session?.cardDataUrl || null);
   const [isGeneratingCard, setIsGeneratingCard] = useState<boolean>(() => !session?.cardDataUrl);
   const photoUrl = session?.arrangedPhotoUrl || session?.defaultPhotoUrl || user?.arranged_photo_url || user?.photo_url || archetype.officialImageUrl;
@@ -528,12 +530,30 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           />
         </div>
 
-        {/* 固定メタデータ（Discord ユーザー名 & パートナーモッフィー） */}
+        {/* 固定メタデータ（Discord ユーザー名 & 2FAステータス & パートナーモッフィー） */}
         <div className={`pt-2 border-t space-y-2 text-[11px] ${isDarkMode ? 'border-neutral-800' : 'border-neutral-100'}`}>
           <div className="flex justify-between items-center py-1">
             <span className={isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}>Discord ユーザー名</span>
             <span className={`font-mono font-medium ${isDarkMode ? 'text-neutral-200' : 'text-neutral-800'}`}>
               @{discordId}
+            </span>
+          </div>
+          <div className="flex justify-between items-center py-1">
+            <span className={isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}>二段階認証 (本人確認)</span>
+            <span className="flex items-center gap-1 font-medium">
+              {twoFaStatus.isVerified ? (
+                <>
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-400">
+                    有効 ({formatRemaining2FaTime(twoFaStatus.remainingMs)})
+                  </span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-amber-400">要再認証 (次回ログイン時)</span>
+                </>
+              )}
             </span>
           </div>
           <div className="flex justify-between items-center py-1">

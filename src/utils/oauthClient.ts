@@ -11,6 +11,8 @@
  * - URL フラグメントによるセキュアなトークン受け渡し & 即時アドレスバー浄化
  */
 
+import { getDiscord2FaStatus, TWO_FACTOR_EXPIRY_MS } from '../services/discord2fa';
+
 export interface AuthUser {
   discord_user_id: string;
   name?: string | null;
@@ -25,6 +27,8 @@ export interface AuthUser {
   mbti?: string | null;
   is_staff?: boolean;
   google_id?: string | null;
+  is_discord_verified?: boolean;
+  discord_verified_at?: number | null;
 }
 
 export interface AuthSession {
@@ -218,6 +222,10 @@ export class MoffyAuthClient {
       return false;
     }
 
+    const isDiscordVerified = params.get('is_discord_verified') === 'true';
+    const rawVerifiedAt = params.get('discord_verified_at');
+    const discordVerifiedAt = rawVerifiedAt ? parseInt(rawVerifiedAt, 10) : null;
+
     const user: AuthUser = {
       discord_user_id: discordUserId,
       name: params.get('name') || null,
@@ -232,12 +240,19 @@ export class MoffyAuthClient {
       mbti: params.get('mbti') || null,
       is_staff: params.get('is_staff') === 'true',
       google_id: params.get('google_id') || null,
+      is_discord_verified: isDiscordVerified,
+      discord_verified_at: discordVerifiedAt,
     };
+
+    const sessionExpiresAt = discordVerifiedAt
+      ? discordVerifiedAt + TWO_FACTOR_EXPIRY_MS
+      : Date.now() + TWO_FACTOR_EXPIRY_MS;
 
     const session: AuthSession = {
       accessToken,
       tokenType,
       user,
+      expiresAt: sessionExpiresAt,
       savedAt: new Date().toISOString(),
     };
 
@@ -281,11 +296,20 @@ export class MoffyAuthClient {
   }
 
   /**
-   * 認証済みかどうか判定（トークン有効期限の物理的検証を含む）
+   * 認証済みかどうか判定（トークン有効期限および二段階認証フラグの物理的検証を含む）
    */
   public isAuthenticated(): boolean {
     const session = this.getSession();
     if (!session || !session.accessToken || !session.user || !session.user.discord_user_id) {
+      return false;
+    }
+
+    // 🌟 二段階認証 (2FA) フラグおよび有効期限 (1週間) の物理的検証
+    // 「既存のユーザーはいったんFalseにしてください。Falseの時、必ずDiscordでの認証が必要になるようにしてください。1週間たつとフラグをFalseにし、次ログインしたとき、二段階認証するようにしよう」
+    const twoFaStatus = getDiscord2FaStatus(session.user.discord_user_id);
+    if (!twoFaStatus.isVerified) {
+      console.warn('[MoffyAuthClient] 2FA flag is False or expired (1 week passed). Re-authentication required.');
+      this.logout();
       return false;
     }
 

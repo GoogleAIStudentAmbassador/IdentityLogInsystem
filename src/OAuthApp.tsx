@@ -13,7 +13,9 @@ import {
 } from './services/api';
 import type { RegistrationResult } from './types';
 import { isAllowedRedirectUri, generateRandomState } from './utils/oauthClient';
-import { AlertTriangle, ShieldCheck, Loader2 } from 'lucide-react';
+import { verifyDiscordUser } from './services/discordApi';
+import { getDiscord2FaStatus, saveDiscord2FaVerification } from './services/discord2fa';
+import { AlertTriangle, ShieldCheck, Loader2, XCircle, ArrowLeft } from 'lucide-react';
 
 interface OAuthParams {
   clientId: string;
@@ -67,6 +69,14 @@ export const OAuthApp: React.FC = () => {
     canCreate: boolean;
   } | null>(null);
   const [googleOnboardingInfo, setGoogleOnboardingInfo] = useState<GoogleOnboardingInfo | null>(null);
+  const [pending2FaAuth, setPending2FaAuth] = useState<{
+    user: RegistrationResult;
+    token: string | null;
+    googleEmail?: string | null;
+  } | null>(null);
+  const [pending2FaDiscordId, setPending2FaDiscordId] = useState('');
+  const [is2FaVerifying, setIs2FaVerifying] = useState(false);
+  const [twoFaError, setTwoFaError] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
@@ -124,6 +134,12 @@ export const OAuthApp: React.FC = () => {
       if (user.mbti) fragmentParams.set('mbti', user.mbti);
       if (user.is_staff) fragmentParams.set('is_staff', 'true');
       if (user.google_id) fragmentParams.set('google_id', user.google_id);
+      if (user.is_discord_verified !== undefined) {
+        fragmentParams.set('is_discord_verified', String(user.is_discord_verified));
+      }
+      if (user.discord_verified_at) {
+        fragmentParams.set('discord_verified_at', String(user.discord_verified_at));
+      }
 
       returnUrl.hash = fragmentParams.toString();
 
@@ -164,6 +180,7 @@ export const OAuthApp: React.FC = () => {
       }
 
       const userData = res.user;
+      const twoFa = getDiscord2FaStatus(userData.discord_user_id);
       const userResult: RegistrationResult = {
         discord_user_id: userData.discord_user_id,
         name: userData.name || userData.display_name || res.google_name || null,
@@ -179,6 +196,8 @@ export const OAuthApp: React.FC = () => {
         created_at: userData.created_at,
         updated_at: userData.updated_at,
         google_id: userData.google_id || null,
+        is_discord_verified: twoFa.isVerified,
+        discord_verified_at: twoFa.record?.verifiedAt || null,
       };
 
       const extractedMbti =
@@ -189,6 +208,25 @@ export const OAuthApp: React.FC = () => {
         userResult.mbti = extractedMbti;
       }
 
+      // 🌟 批判検証是正（無限ループ・ソフトロック防止）:
+      // 既存Google連携ユーザーで2FAが未完了または1週間経過している場合、
+      // リダイレクトを即座に保留し、画面上で二段階認証（公式サーバー在籍確認）の完了を強制
+      if (!twoFa.isVerified) {
+        setPending2FaAuth({
+          user: userResult,
+          token: res.access_token || null,
+          googleEmail: res.google_email,
+        });
+        setPending2FaDiscordId(userResult.discord_user_id || '');
+        if (twoFa.isExpired) {
+          setTwoFaError('前回の二段階認証から1週間が経過したため、再認証が必要です。');
+        } else {
+          setTwoFaError(null);
+        }
+        setIsSubmitting(false);
+        return;
+      }
+
       handleAuthSuccess(userResult, res.access_token);
     } catch (err: unknown) {
       console.error('Google login error:', err);
@@ -197,6 +235,57 @@ export const OAuthApp: React.FC = () => {
       setIsSubmitting(false);
     }
   }, [handleAuthSuccess]);
+
+  /**
+   * Google 連携既存ユーザーの二段階認証実行ハンドラ
+   */
+  const handleVerifyPending2Fa = async () => {
+    if (!pending2FaAuth) return;
+    const cleanId = pending2FaDiscordId.trim().replace(/^@/, '');
+    if (!cleanId) {
+      setTwoFaError('Discord ユーザー名を入力してください');
+      return;
+    }
+
+    setIs2FaVerifying(true);
+    setTwoFaError(null);
+
+    try {
+      const res = await verifyDiscordUser(cleanId);
+      if (res.isAlive && res.user_name) {
+        // 2FAフラグおよび有効期限（1週間）を永続化保存
+        saveDiscord2FaVerification(res.user_name, res);
+        const updatedUser: RegistrationResult = {
+          ...pending2FaAuth.user,
+          discord_user_id: res.user_name,
+          is_discord_verified: true,
+          discord_verified_at: Date.now(),
+        };
+        if (res.avatar_url && !updatedUser.photo_url) {
+          updatedUser.photo_url = res.avatar_url;
+        }
+        const token = pending2FaAuth.token;
+        setPending2FaAuth(null);
+        handleAuthSuccess(updatedUser, token);
+      } else {
+        const msg =
+          res.message ||
+          '指定された Discord ユーザー名が見つかりませんでした。Google AI Student Ambassador 公式サーバーに参加しているかご確認ください。';
+        setTwoFaError(msg);
+      }
+    } catch (err: unknown) {
+      console.error('2FA verification failed:', err);
+      setTwoFaError('在籍確認サーバーへの通信に失敗しました。ネットワークまたはTailscale接続をご確認ください。');
+    } finally {
+      setIs2FaVerifying(false);
+    }
+  };
+
+  const handleCancelPending2Fa = () => {
+    setPending2FaAuth(null);
+    setTwoFaError(null);
+    setErrorMsg(null);
+  };
 
   /**
    * 通常サインイン / 新規登録 / Googleオンボーディング登録
@@ -214,6 +303,8 @@ export const OAuthApp: React.FC = () => {
         if (!user.photo_url && data.discordAvatarUrl) {
           user.photo_url = data.discordAvatarUrl;
         }
+        user.is_discord_verified = true;
+        user.discord_verified_at = data.discordVerifiedAt || Date.now();
         handleAuthSuccess(user, token);
       } else if (data.authMode === 'google_onboarding') {
         // Google 初回オンボーディング登録
@@ -248,6 +339,8 @@ export const OAuthApp: React.FC = () => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           google_id: null,
+          is_discord_verified: true,
+          discord_verified_at: data.discordVerifiedAt || Date.now(),
           mbti: extractMbtiFromUrl(res.user.photo_url || res.user.arranged_photo_url || res.user.default_photo_url),
         };
 
@@ -279,6 +372,8 @@ export const OAuthApp: React.FC = () => {
         if (!result.photo_url && data.discordAvatarUrl) {
           result.photo_url = data.discordAvatarUrl;
         }
+        result.is_discord_verified = true;
+        result.discord_verified_at = data.discordVerifiedAt || Date.now();
 
         handleAuthSuccess(result, null);
       }
@@ -358,13 +453,115 @@ export const OAuthApp: React.FC = () => {
       {/* メインフォーム */}
       <main className="flex-1 flex flex-col justify-center">
         {isRedirectUriValid ? (
-          <IntroScreen
-            onContinue={handleIntroContinue}
-            onGoogleSignIn={handleGoogleSignIn}
-            onCancelGoogleOnboarding={handleCancelGoogleOnboarding}
-            googleOnboardingInfo={googleOnboardingInfo}
-            isSubmitting={isSubmitting || isRedirecting}
-          />
+          pending2FaAuth ? (
+            <div className="w-full max-w-md mx-auto px-4 py-8 animate-fade-in">
+              <div className="bg-gray-900/90 border border-gray-800 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-sm space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-google-blue/10 border border-google-blue/30 flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-6 h-6 text-google-blue" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-bold text-white">
+                      二段階認証（本人確認）
+                    </h2>
+                    <p className="text-xs text-gray-400">
+                      Google 認証完了：Discord 在籍確認が必要です
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 text-xs space-y-1.5 text-gray-300">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-400">Google アカウント:</span>
+                    <span className="font-medium text-white truncate max-w-[200px]">
+                      {pending2FaAuth.googleEmail || pending2FaAuth.user.name || '連携アカウント'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-400">登録ユーザー:</span>
+                    <span className="font-mono text-emerald-400">
+                      @{pending2FaAuth.user.discord_user_id}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-left">
+                  <label htmlFor="pending2FaDiscordInput" className="text-xs font-bold text-gray-300 block">
+                    Discord ユーザー名
+                  </label>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-4 z-20 text-gray-400 font-mono text-base pointer-events-none">
+                      @
+                    </span>
+                    <input
+                      id="pending2FaDiscordInput"
+                      type="text"
+                      value={pending2FaDiscordId.replace(/^@/, '')}
+                      onChange={(e) => {
+                        setPending2FaDiscordId(e.target.value);
+                        if (twoFaError) setTwoFaError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleVerifyPending2Fa();
+                        }
+                      }}
+                      placeholder="ユーザー名を入力"
+                      autoComplete="off"
+                      className="relative z-10 w-full h-14 pl-9 pr-5 rounded-full border-2 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium transition shadow-sm focus:outline-none border-gray-600 focus:border-google-blue"
+                    />
+                  </div>
+
+                  {twoFaError && (
+                    <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex items-start gap-2.5 animate-fade-in">
+                      <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                      <div className="flex-1 leading-relaxed">
+                        <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
+                        <p className="text-red-300/90">{twoFaError}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleVerifyPending2Fa}
+                    disabled={is2FaVerifying || pending2FaDiscordId.trim().replace(/^@/, '').length < 2}
+                    className="w-full h-12 rounded-full bg-google-blue hover:bg-google-blue/90 text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {is2FaVerifying ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>サーバー在籍を確認中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-4 h-4 text-white" />
+                        <span>本人確認へ進む</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCancelPending2Fa}
+                    className="w-full h-10 rounded-full border border-gray-700 hover:border-gray-500 text-gray-400 hover:text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>キャンセル / 別のアカウントでログイン</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <IntroScreen
+              onContinue={handleIntroContinue}
+              onGoogleSignIn={handleGoogleSignIn}
+              onCancelGoogleOnboarding={handleCancelGoogleOnboarding}
+              googleOnboardingInfo={googleOnboardingInfo}
+              isSubmitting={isSubmitting || isRedirecting}
+            />
+          )
         ) : (
           <div className="w-full max-w-md mx-auto p-6 text-center text-gray-400">
             <p>無効なリクエストです。正しい認可リンクからアクセスしてください。</p>

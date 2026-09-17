@@ -18,6 +18,14 @@ import {
 import { OrbitingStars } from './OrbitingStars';
 import { verifyMoffyImage, fetchAuthConfig } from '../services/api';
 import { verifyDiscordUser, type DiscordUserVerification } from '../services/discordApi';
+import {
+  getDiscord2FaStatus,
+  saveDiscord2FaVerification,
+  resetDiscord2FaStatus,
+  formatRemaining2FaTime,
+  TWO_FACTOR_EXPIRY_MS,
+  type Discord2FaStatus,
+} from '../services/discord2fa';
 import type { VerifyMoffyResponse, GradeType } from '../types';
 import { GRADE_OPTIONS } from '../types';
 
@@ -35,6 +43,8 @@ export interface OnboardingData {
   grade: GradeType;
   university: string;
   tempToken?: string;
+  isDiscordVerified?: boolean;
+  discordVerifiedAt?: number | null;
 }
 
 export interface GoogleOnboardingInfo {
@@ -105,9 +115,27 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   // 🌟 批判検証是正 1: Googleの表示名（実名）を Discord ID に自動代入せず、常にクリーンなDiscord ID入力を促す
   const defaultInitialId = React.useMemo(() => getInitialDiscordId(initialId), [initialId]);
   const [discordId, setDiscordId] = useState(defaultInitialId);
+  const [discord2FaStatus, setDiscord2FaStatus] = useState<Discord2FaStatus>(() => getDiscord2FaStatus(defaultInitialId));
   const [isDiscordVerifying, setIsDiscordVerifying] = useState(false);
-  const [discordVerifiedData, setDiscordVerifiedData] = useState<DiscordUserVerification | null>(null);
-  const [discordVerifyError, setDiscordVerifyError] = useState<string | null>(null);
+  const [discordVerifiedData, setDiscordVerifiedData] = useState<DiscordUserVerification | null>(() => {
+    const status = getDiscord2FaStatus(defaultInitialId);
+    if (status.isVerified && status.record) {
+      return {
+        isAlive: true,
+        user_name: status.record.userName,
+        displayname: status.record.displayName || status.record.userName,
+        avatar_url: status.record.avatarUrl,
+      };
+    }
+    return null;
+  });
+  const [discordVerifyError, setDiscordVerifyError] = useState<string | null>(() => {
+    const status = getDiscord2FaStatus(defaultInitialId);
+    if (status.isExpired) {
+      return '前回の二段階認証から1週間が経過したため、再認証が必要です。';
+    }
+    return null;
+  });
 
   // Discord サーバー在籍確認（本人確認・二段階認証）
   const handleVerifyDiscord = async () => {
@@ -124,6 +152,14 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     try {
       const res = await verifyDiscordUser(cleanName);
       if (res.isAlive && res.user_name) {
+        // 2FAフラグおよび有効期限（1週間）を永続化保存
+        const savedRecord = saveDiscord2FaVerification(res.user_name, res);
+        setDiscord2FaStatus({
+          isVerified: true,
+          record: savedRecord,
+          remainingMs: TWO_FACTOR_EXPIRY_MS,
+          isExpired: false,
+        });
         setDiscordVerifiedData(res);
         setDiscordId(res.user_name);
         setDiscordVerifyError(null);
@@ -133,6 +169,8 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
           setNickname(res.displayname);
         }
       } else {
+        resetDiscord2FaStatus(cleanName);
+        setDiscord2FaStatus({ isVerified: false });
         setDiscordVerifiedData(null);
         const msg =
           res.message ||
@@ -149,8 +187,42 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   };
 
   const handleResetDiscordVerification = () => {
+    if (discordId) {
+      resetDiscord2FaStatus(discordId);
+    }
     setDiscordVerifiedData(null);
+    setDiscord2FaStatus({ isVerified: false });
     setDiscordVerifyError(null);
+  };
+
+  const handleDiscordIdChange = (newVal: string) => {
+    setDiscordId(newVal);
+    const clean = newVal.trim().replace(/^@/, '').toLowerCase();
+    if (!clean) {
+      setDiscordVerifiedData(null);
+      setDiscordVerifyError(null);
+      setDiscord2FaStatus({ isVerified: false });
+      return;
+    }
+    const status = getDiscord2FaStatus(clean);
+    setDiscord2FaStatus(status);
+    if (status.isVerified && status.record) {
+      setDiscordVerifiedData({
+        isAlive: true,
+        user_name: status.record.userName,
+        displayname: status.record.displayName || status.record.userName,
+        avatar_url: status.record.avatarUrl,
+      });
+      setDiscordVerifyError(null);
+    } else {
+      setDiscordVerifiedData(null);
+      if (status.isExpired) {
+        setDiscordVerifyError('前回の二段階認証から1週間が経過したため、再認証が必要です。');
+      } else {
+        setDiscordVerifyError(null);
+      }
+    }
+    if (error) setError(null);
   };
 
   const [password, setPassword] = useState('');
@@ -569,6 +641,8 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
         grade,
         university: cleanUniversity,
         tempToken: googleOnboardingInfo?.tempToken,
+        isDiscordVerified: true,
+        discordVerifiedAt: discord2FaStatus.record?.verifiedAt || Date.now(),
       });
       return;
     }
@@ -638,6 +712,8 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
       authMode,
       grade,
       university: cleanUniversity,
+      isDiscordVerified: true,
+      discordVerifiedAt: discord2FaStatus.record?.verifiedAt || Date.now(),
     });
   };
 
@@ -845,12 +921,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                         id="discordId"
                         type="text"
                         value={discordId.replace(/^@/, '')}
-                        onChange={(e) => {
-                          setDiscordId(e.target.value);
-                          if (discordVerifiedData) setDiscordVerifiedData(null);
-                          if (discordVerifyError) setDiscordVerifyError(null);
-                          if (error) setError(null);
-                        }}
+                        onChange={(e) => handleDiscordIdChange(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
@@ -923,9 +994,14 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                       <p className="text-xs text-gray-400 font-mono truncate">
                         @{discordVerifiedData?.user_name}
                       </p>
-                      <span className="inline-block mt-0.5 text-[10px] text-emerald-400 font-medium">
-                        公式サーバー在籍確認済み
-                      </span>
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        <span className="text-[10px] text-emerald-400 font-medium">
+                          公式サーバー在籍確認済み
+                        </span>
+                        <span className="text-[10px] text-emerald-400/90 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-500/30 font-mono">
+                          {formatRemaining2FaTime(discord2FaStatus.remainingMs || TWO_FACTOR_EXPIRY_MS)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   <button
