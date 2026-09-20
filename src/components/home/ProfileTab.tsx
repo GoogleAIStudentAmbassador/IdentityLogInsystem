@@ -7,7 +7,7 @@ import { SNS_PLATFORMS, detectPlatformFromUrl, sanitizeTextInput } from '../../u
 import { saveGameProgress, getGameProgress } from '../../services/api';
 import { generateProfileCardBlob } from '../../utils/cardGenerator';
 import { getDiscord2FaStatus, formatRemaining2FaTime } from '../../services/discord2fa';
-import { getDiscordAvatarUrl } from '../../services/discordApi';
+import { getDiscordAvatarUrl, fetchDiscordAvatarBlobUrl } from '../../services/discordApi';
 
 interface ProfileTabProps {
   user: AuthUser | null;
@@ -57,6 +57,23 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   // 誕生日（デフォルト非表示）
   const [birthday, setBirthday] = useState<string>(() => session?.birthday || '');
   const [showBirthday, setShowBirthday] = useState<boolean>(() => session?.showBirthday ?? false);
+
+  // Discord アバター画像 (Blob URL 自動取得・キャッシュ対応)
+  const [discordAvatarUrl, setDiscordAvatarUrl] = useState<string>(() => getDiscordAvatarUrl(discordId, 64));
+
+  useEffect(() => {
+    let isMounted = true;
+    if (discordId && discordId !== 'Ambassador') {
+      fetchDiscordAvatarBlobUrl(discordId).then((url) => {
+        if (isMounted && url) {
+          setDiscordAvatarUrl(url);
+        }
+      }).catch(() => {});
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [discordId]);
 
   // パートナーカードの自動生成・同期（セッションに画像データが無い場合、Canvas上で即座に高解像度800x1000カードを生成）
   useEffect(() => {
@@ -538,7 +555,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             <div className="flex items-center gap-2">
               {discordId && discordId !== 'Ambassador' && (
                 <img
-                  src={getDiscordAvatarUrl(discordId, 64)}
+                  src={discordAvatarUrl || getDiscordAvatarUrl(discordId, 64)}
                   alt="Discord Avatar"
                   className="w-5 h-5 rounded-full object-cover border border-white/20 bg-neutral-800 shrink-0"
                   onError={(e) => {

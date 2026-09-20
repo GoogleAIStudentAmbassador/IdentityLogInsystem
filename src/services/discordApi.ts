@@ -35,9 +35,33 @@ export interface AuthStatusResponse {
 }
 
 const DIRECT_API_URL = (
-  import.meta.env.VITE_DISCORD_API_URL || 'http://100.92.228.70:8000'
+  import.meta.env.VITE_DISCORD_API_URL || 'https://server.tailc932d4.ts.net'
 ).replace(/\/+$/, '');
 const PROXY_API_URL = '/discord-api';
+
+const DEFAULT_CLIENT_KEY = 'pk_live_f67484c82c3407795dc62bc2f88015f8';
+
+/**
+ * FastAPI クライアント認証キーを取得します。
+ */
+export function getDiscordClientKey(): string {
+  return (
+    import.meta.env.VITE_DISCORD_CLIENT_KEY ||
+    import.meta.env.FASTAPI_CLIENT_KEY ||
+    DEFAULT_CLIENT_KEY
+  );
+}
+
+/**
+ * API リクエスト用ヘッダー（X-Client-Key, X-API-Key）を構築します。
+ */
+export function getDiscordAuthHeaders(): Record<string, string> {
+  const key = getDiscordClientKey();
+  return {
+    'X-Client-Key': key,
+    'X-API-Key': key,
+  };
+}
 
 /**
  * APIのベースURLを判定して取得します。
@@ -52,6 +76,59 @@ export function getDiscordApiBaseUrl(): string {
 }
 
 /**
+ * アバターBlob URLのメモリキャッシュ
+ */
+const avatarBlobUrlMap = new Map<string, string>();
+
+/**
+ * 認証ヘッダーを付与してアバター画像バイナリを取得し、Blob URLを生成・キャッシュします。
+ */
+export async function fetchDiscordAvatarBlobUrl(userName?: string | null): Promise<string> {
+  if (!userName) return '';
+  const clean = userName.trim().replace(/^@/, '');
+  if (!clean) return '';
+
+  const cacheKey = clean.toLowerCase();
+  if (avatarBlobUrlMap.has(cacheKey)) {
+    return avatarBlobUrlMap.get(cacheKey)!;
+  }
+
+  const endpoints = [
+    `${getDiscordApiBaseUrl()}/api/user/image?user_name=${encodeURIComponent(clean)}`,
+    `${DIRECT_API_URL}/api/user/image?user_name=${encodeURIComponent(clean)}`,
+    `${getDiscordApiBaseUrl()}/api/users/${encodeURIComponent(clean)}/avatar`,
+    `${DIRECT_API_URL}/api/users/${encodeURIComponent(clean)}/avatar`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: getDiscordAuthHeaders(),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          const blobUrl = URL.createObjectURL(blob);
+          avatarBlobUrlMap.set(cacheKey, blobUrl);
+          return blobUrl;
+        }
+      }
+    } catch {
+      // 次のエンドポイントへフォールバック
+    }
+  }
+
+  return getDiscordAvatarUrl(clean);
+}
+
+/**
  * Discord ユーザーのアバター画像 URL を生成
  * API v2.0.0: /api/users/{user_name}/avatar または /api/user/image
  */
@@ -63,8 +140,14 @@ export function getDiscordAvatarUrl(
   if (!userName) return '';
   const clean = userName.trim().replace(/^@/, '');
   if (!clean) return '';
+
+  const cacheKey = clean.toLowerCase();
+  if (avatarBlobUrlMap.has(cacheKey)) {
+    return avatarBlobUrlMap.get(cacheKey)!;
+  }
+
   const base = getDiscordApiBaseUrl();
-  return `${base}/api/users/${encodeURIComponent(clean)}/avatar?size=${size}&format=${format}`;
+  return `${base}/api/user/image?user_name=${encodeURIComponent(clean)}&size=${size}&format=${format}`;
 }
 
 /**
@@ -83,6 +166,7 @@ export async function checkDiscordBotHealth(): Promise<{
       const timeoutId = setTimeout(() => controller.abort(), 3500);
 
       const res = await fetch(`${baseUrl}/health`, {
+        headers: getDiscordAuthHeaders(),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -136,6 +220,7 @@ export async function verifyDiscordUser(userName: string): Promise<DiscordUserVe
         method: 'GET',
         headers: {
           Accept: 'application/json',
+          ...getDiscordAuthHeaders(),
         },
         signal: controller.signal,
       });
@@ -147,8 +232,11 @@ export async function verifyDiscordUser(userName: string): Promise<DiscordUserVe
 
       const data: DiscordUserVerification = await res.json();
       if (data.isAlive && data.user_name) {
-        // API v2.0.0 のアバターURLを自動付与
-        if (!data.avatar_url) {
+        // API v2.0.0 の認証済みアバターBlob URLを取得（または通常URL）
+        try {
+          const blobUrl = await fetchDiscordAvatarBlobUrl(data.user_name);
+          data.avatar_url = blobUrl || getDiscordAvatarUrl(data.user_name);
+        } catch {
           data.avatar_url = getDiscordAvatarUrl(data.user_name);
         }
       }
@@ -210,6 +298,7 @@ export async function startDiscord2FaAuth(
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          ...getDiscordAuthHeaders(),
         },
         body,
         signal: controller.signal,
@@ -275,6 +364,7 @@ export async function checkDiscord2FaAuthStatus(
         method: 'GET',
         headers: {
           Accept: 'application/json',
+          ...getDiscordAuthHeaders(),
         },
         signal: controller.signal,
       });
@@ -321,6 +411,7 @@ export async function cancelDiscord2FaAuth(userName: string): Promise<boolean> {
         method: 'DELETE',
         headers: {
           Accept: 'application/json',
+          ...getDiscordAuthHeaders(),
         },
         signal: controller.signal,
       });

@@ -7,7 +7,8 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   const moffyApiUrl = env.VITE_MOFFY_API_BASE_URL || 'https://moffy-profile-287701603412.asia-northeast1.run.app';
-  const discordApiUrl = env.VITE_DISCORD_API_URL || 'http://100.92.228.70:8000';
+  const discordApiUrl = env.VITE_DISCORD_API_URL || 'https://server.tailc932d4.ts.net';
+  const discordClientKey = env.VITE_DISCORD_CLIENT_KEY || env.FASTAPI_CLIENT_KEY || 'pk_live_f67484c82c3407795dc62bc2f88015f8';
   const firebaseStorageUrl = env.VITE_FIREBASE_STORAGE_URL || 'https://firebasestorage.googleapis.com';
 
   return {
@@ -40,7 +41,13 @@ export default defineConfig(({ mode }) => {
         '/discord-api': {
           target: discordApiUrl,
           changeOrigin: true,
+          secure: true,
           rewrite: (path) => path.replace(/^\/discord-api/, ''),
+          headers: {
+            'X-Client-Key': discordClientKey,
+            'X-API-Key': discordClientKey,
+            'Origin': 'https://googleaistudentambassador.github.io',
+          },
         },
       },
     },
