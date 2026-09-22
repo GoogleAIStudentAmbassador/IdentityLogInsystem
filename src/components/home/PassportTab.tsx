@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ChevronRight } from 'lucide-react';
-import type { UserMoffySession, MbtiType } from '../../types';
+import type { UserMoffySession, MbtiType, MoffyIconStyle } from '../../types';
 import type { AuthUser } from '../../utils/oauthClient';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
 
@@ -8,13 +8,17 @@ interface PassportTabProps {
   user: AuthUser | null;
   session: UserMoffySession | null;
   isDarkMode: boolean;
-  onStyleChange?: (style: 'normal' | 'equipped') => void;
+  preferredStyle?: MoffyIconStyle;
+  discordAvatarUrl?: string;
+  onStyleChange?: (style: MoffyIconStyle) => void;
 }
 
 export const PassportTab: React.FC<PassportTabProps> = ({
   user,
   session,
   isDarkMode,
+  preferredStyle,
+  discordAvatarUrl,
   onStyleChange,
 }) => {
   // 🌟 性格診断受講・モッフィー作成済み判定
@@ -27,19 +31,24 @@ export const PassportTab: React.FC<PassportTabProps> = ({
     user?.default_photo_url
   );
 
-  // 初期スタイル: session または localStorage から復元
-  const getInitialStyle = (): 'normal' | 'equipped' => {
+  // 初期スタイル: preferredStyle prop, session または localStorage から復元
+  const getInitialStyle = (): MoffyIconStyle => {
+    if (preferredStyle) return preferredStyle;
     if (session?.preferredStyle) return session.preferredStyle;
     try {
       const saved = localStorage.getItem('moffy_preferred_style');
-      if (saved === 'normal' || saved === 'equipped') return saved;
+      if (saved === 'normal' || saved === 'equipped' || saved === 'discord') {
+        return saved as MoffyIconStyle;
+      }
     } catch {
       // ignore
     }
     return 'equipped';
   };
 
-  const [activeMode, setActiveMode] = useState<'normal' | 'equipped'>(getInitialStyle);
+  const [localMode, setLocalMode] = useState<MoffyIconStyle>(getInitialStyle);
+  const activeMode: MoffyIconStyle = preferredStyle || localMode;
+  const [discordImgError, setDiscordImgError] = useState(false);
 
   // タッチスワイプ / ドラッグ判定用の ref
   const touchStartX = useRef<number | null>(null);
@@ -58,17 +67,17 @@ export const PassportTab: React.FC<PassportTabProps> = ({
       : `${baseUrl}${archetype.officialImageUrl.replace(/^\/+/, '')}`
     : `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`;
 
-  // 画像ソースの整理（ノーマル vs 装備）
+  // 画像ソースの整理（ノーマル vs 装備 vs Discord）
   const normalImgSrc = session?.defaultPhotoUrl || user?.default_photo_url || defaultMoffyImg;
   const equippedImgSrc = session?.arrangedPhotoUrl || user?.arranged_photo_url || normalImgSrc;
-  const canToggle = hasMoffy && equippedImgSrc !== normalImgSrc;
+  const discordImgSrc = discordAvatarUrl || user?.photo_url || '';
+  const canToggle = hasMoffy;
 
-  // モード切替 ＆ 永続化（QR連動用）
-  const handleModeChange = (mode: 'normal' | 'equipped') => {
-    setActiveMode(mode);
+  // モード切替 ＆ 永続化（QR・プロフィール・パートナーカード連動用）
+  const handleModeChange = (mode: MoffyIconStyle) => {
+    setLocalMode(mode);
     try {
       localStorage.setItem('moffy_preferred_style', mode);
-      // セッションオブジェクトの同期（prop を直接 mutate せずにクローン保存）
       if (session) {
         const updatedSession = { ...session, preferredStyle: mode };
         const storageKey = `moffy_user_session_${session.discordUserId}`;
@@ -80,9 +89,17 @@ export const PassportTab: React.FC<PassportTabProps> = ({
     onStyleChange?.(mode);
   };
 
-  const toggleMode = () => {
-    const nextMode = activeMode === 'equipped' ? 'normal' : 'equipped';
+  // 3択ループ切替: normal ➔ equipped ➔ discord ➔ normal
+  const toggleModeNext = () => {
+    const nextMode: MoffyIconStyle =
+      activeMode === 'normal' ? 'equipped' : activeMode === 'equipped' ? 'discord' : 'normal';
     handleModeChange(nextMode);
+  };
+
+  const toggleModePrev = () => {
+    const prevMode: MoffyIconStyle =
+      activeMode === 'normal' ? 'discord' : activeMode === 'discord' ? 'equipped' : 'normal';
+    handleModeChange(prevMode);
   };
 
   // タッチスワイプ処理
@@ -97,9 +114,9 @@ export const PassportTab: React.FC<PassportTabProps> = ({
     const deltaY = e.changedTouches[0].clientY - touchStartY.current;
     if (Math.abs(deltaX) > 24 && Math.abs(deltaX) > Math.abs(deltaY) * 1.1) {
       if (deltaX > 0) {
-        handleModeChange('normal');
+        toggleModePrev();
       } else {
-        handleModeChange('equipped');
+        toggleModeNext();
       }
     }
     touchStartX.current = null;
@@ -118,12 +135,12 @@ export const PassportTab: React.FC<PassportTabProps> = ({
     const deltaX = e.clientX - mouseStartX.current;
     if (Math.abs(deltaX) > 24) {
       if (deltaX > 0) {
-        handleModeChange('normal');
+        toggleModePrev();
       } else {
-        handleModeChange('equipped');
+        toggleModeNext();
       }
     } else {
-      toggleMode();
+      toggleModeNext();
     }
     mouseStartX.current = null;
   };
@@ -158,7 +175,7 @@ export const PassportTab: React.FC<PassportTabProps> = ({
           {/* 水晶球体本体 (スワイプ・ドラッグ・タップでスタイル切替) */}
           <div
             data-tutorial-id="tutorial-crystal-orb"
-            onClick={canToggle ? toggleMode : undefined}
+            onClick={canToggle ? toggleModeNext : undefined}
             onTouchStart={canToggle ? handleTouchStart : undefined}
             onTouchEnd={canToggle ? handleTouchEnd : undefined}
             onMouseDown={canToggle ? handleMouseDown : undefined}
@@ -168,14 +185,14 @@ export const PassportTab: React.FC<PassportTabProps> = ({
                 ? 'border-white/30 bg-gradient-to-b from-white/15 via-transparent to-black/60'
                 : 'border-white/80 bg-gradient-to-b from-white/60 via-transparent to-neutral-200/50 shadow-xl'
             } ${
-              canToggle ? 'cursor-grab active:cursor-grabbing hover:border-white/60 transition-colors' : ''
+              canToggle ? 'cursor-pointer active:scale-[0.98] hover:border-white/60 transition-all' : ''
             }`}
             style={{
               boxShadow: isDarkMode
                 ? `0 0 50px ${archetype.primaryColor}55, inset 0 0 35px rgba(255,255,255,0.25), 0 0 70px rgba(0,0,0,0.8)`
                 : `0 0 40px ${archetype.primaryColor}33, inset 0 0 30px rgba(255,255,255,0.8), 0 12px 36px rgba(0,0,0,0.12)`,
             }}
-            title={canToggle ? 'スワイプまたはタップでスタイル切替' : undefined}
+            title={canToggle ? 'タップまたはスワイプでアイコン切替' : undefined}
           >
             {/* 内部の微細な環境カラーグラデーション */}
             <div
@@ -185,11 +202,11 @@ export const PassportTab: React.FC<PassportTabProps> = ({
               }}
             />
 
-            {/* 水晶の内部で優雅に無重力浮遊するモッフィー または 未作成時の「？」 */}
+            {/* 水晶の内部で優雅に無重力浮遊するアイコン */}
             <div className="relative z-10 w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center animate-crystal-float">
               {hasMoffy ? (
                 <>
-                  {/* ノーマルモッフィー */}
+                  {/* 1. ノーマルモッフィー */}
                   <img
                     src={normalImgSrc}
                     alt={`${archetype.title} (Normal)`}
@@ -203,7 +220,7 @@ export const PassportTab: React.FC<PassportTabProps> = ({
                     }}
                   />
 
-                  {/* アクセサリー装備モッフィー */}
+                  {/* 2. アクセサリー装備モッフィー */}
                   <img
                     src={equippedImgSrc}
                     alt={`${archetype.title} (Equipped)`}
@@ -216,12 +233,45 @@ export const PassportTab: React.FC<PassportTabProps> = ({
                       (e.currentTarget as HTMLImageElement).src = normalImgSrc;
                     }}
                   />
+
+                  {/* 3. Discord プロフィール画像 */}
+                  {discordImgSrc && !discordImgError ? (
+                    <img
+                      src={discordImgSrc}
+                      alt="Discord Profile"
+                      onError={() => setDiscordImgError(true)}
+                      className={`absolute inset-0 w-full h-full object-cover rounded-full select-none pointer-events-none drop-shadow-[0_12px_24px_rgba(0,0,0,0.65)] ring-2 ring-white/40 transition-all duration-500 ease-out ${
+                        activeMode === 'discord'
+                          ? 'opacity-100 scale-100 translate-y-0'
+                          : 'opacity-0 scale-90 translate-y-6 pointer-events-none'
+                      }`}
+                    />
+                  ) : (
+                    <div
+                      className={`absolute inset-0 w-full h-full rounded-full flex flex-col items-center justify-center font-mono text-xs transition-all duration-500 ring-2 ring-white/30 ${
+                        activeMode === 'discord'
+                          ? 'opacity-100 scale-100'
+                          : 'opacity-0 scale-90 pointer-events-none'
+                      } ${isDarkMode ? 'bg-neutral-800 text-neutral-300' : 'bg-neutral-200 text-neutral-700'}`}
+                    >
+                      Discord
+                    </div>
+                  )}
                 </>
               ) : (
-                /* 🌟 未作成時: 中央に大きな「？」を表示 */
-                <span className="text-7xl sm:text-8xl font-light font-mono text-neutral-400 dark:text-neutral-500 select-none drop-shadow-sm">
-                  ?
-                </span>
+                /* 🌟 未診断時: Discordプロフィール画像を表示（万一取得不可時は「？」にフォールバック） */
+                discordImgSrc && !discordImgError ? (
+                  <img
+                    src={discordImgSrc}
+                    alt="Discord Profile"
+                    onError={() => setDiscordImgError(true)}
+                    className="w-36 h-36 sm:w-44 sm:h-44 object-cover rounded-full select-none pointer-events-none drop-shadow-[0_12px_24px_rgba(0,0,0,0.65)] ring-2 ring-white/40"
+                  />
+                ) : (
+                  <span className="text-7xl sm:text-8xl font-light font-mono text-neutral-400 dark:text-neutral-500 select-none drop-shadow-sm">
+                    ?
+                  </span>
+                )
               )}
             </div>
 
@@ -230,7 +280,7 @@ export const PassportTab: React.FC<PassportTabProps> = ({
           </div>
         </div>
 
-        {/* スタイル切替ピルタブ ＆ 操作ガイド（モッフィー作成済みかつ切替可能な場合のみ表示） */}
+        {/* スタイル切替ピルタブ ＆ 操作ガイド（モッフィー作成済みユーザーのみ表示） */}
         {hasMoffy && canToggle && (
           <div className="relative z-20 flex flex-col items-center gap-2 mt-2">
             <div className={`inline-flex items-center p-0.5 rounded-full border backdrop-blur-md ${
@@ -239,7 +289,7 @@ export const PassportTab: React.FC<PassportTabProps> = ({
               <button
                 type="button"
                 onClick={() => handleModeChange('normal')}
-                className={`px-4 py-1.5 rounded-full text-xs font-mono tracking-wider transition-all duration-200 cursor-pointer ${
+                className={`px-3 sm:px-3.5 py-1.5 rounded-full text-[11px] sm:text-xs font-mono tracking-wider transition-all duration-200 cursor-pointer ${
                   activeMode === 'normal'
                     ? isDarkMode
                       ? 'bg-white/20 text-white font-semibold shadow-sm'
@@ -254,7 +304,7 @@ export const PassportTab: React.FC<PassportTabProps> = ({
               <button
                 type="button"
                 onClick={() => handleModeChange('equipped')}
-                className={`px-4 py-1.5 rounded-full text-xs font-mono tracking-wider transition-all duration-200 cursor-pointer ${
+                className={`px-3 sm:px-3.5 py-1.5 rounded-full text-[11px] sm:text-xs font-mono tracking-wider transition-all duration-200 cursor-pointer ${
                   activeMode === 'equipped'
                     ? isDarkMode
                       ? 'bg-white/20 text-white font-semibold shadow-sm'
@@ -266,11 +316,26 @@ export const PassportTab: React.FC<PassportTabProps> = ({
               >
                 EQUIPPED
               </button>
+              <button
+                type="button"
+                onClick={() => handleModeChange('discord')}
+                className={`px-3 sm:px-3.5 py-1.5 rounded-full text-[11px] sm:text-xs font-mono tracking-wider transition-all duration-200 cursor-pointer ${
+                  activeMode === 'discord'
+                    ? isDarkMode
+                      ? 'bg-white/20 text-white font-semibold shadow-sm'
+                      : 'bg-white text-neutral-900 font-semibold shadow-sm'
+                    : isDarkMode
+                      ? 'text-neutral-400 hover:text-white'
+                      : 'text-neutral-500 hover:text-neutral-900'
+                }`}
+              >
+                DISCORD
+              </button>
             </div>
             <span className={`text-[11px] font-mono tracking-wider select-none ${
               isDarkMode ? 'text-neutral-500' : 'text-neutral-400'
             }`}>
-              ‹ 水晶をスワイプまたはタップで切替 ›
+              ‹ 水晶をタップでアイコン切替 ›
             </span>
           </div>
         )}

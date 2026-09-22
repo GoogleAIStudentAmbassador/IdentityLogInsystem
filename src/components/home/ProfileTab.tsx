@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, RotateCcw, LogOut, Download, Plus, Trash2, Check, Save, AlertTriangle, HelpCircle } from 'lucide-react';
 import type { AuthUser } from '../../utils/oauthClient';
-import type { UserMoffySession, MbtiType, SnsLinkItem, SnsPlatform } from '../../types';
+import type { UserMoffySession, MbtiType, SnsLinkItem, SnsPlatform, MoffyIconStyle } from '../../types';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
 import { SNS_PLATFORMS, detectPlatformFromUrl, sanitizeTextInput } from '../../utils/snsUtils';
 import { saveGameProgress, getGameProgress } from '../../services/api';
@@ -15,6 +15,8 @@ interface ProfileTabProps {
   onLogout: () => void;
   onBackToQuiz: () => void;
   isDarkMode: boolean;
+  preferredStyle?: MoffyIconStyle;
+  discordAvatarUrl?: string;
   onUpdateSession?: (updatedSession: UserMoffySession) => void;
   onRestartTutorial?: () => void;
 }
@@ -38,17 +40,58 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   onLogout,
   onBackToQuiz,
   isDarkMode,
+  preferredStyle,
+  discordAvatarUrl: propDiscordAvatarUrl,
   onUpdateSession,
   onRestartTutorial,
 }) => {
+  // 🌟 性格診断受講・モッフィー作成済み判定
+  const hasMoffy = Boolean(
+    session?.mbti ||
+    user?.mbti ||
+    session?.arrangedPhotoUrl ||
+    session?.defaultPhotoUrl ||
+    user?.arranged_photo_url ||
+    user?.default_photo_url
+  );
+
   const discordId = user?.discord_user_id || session?.discordUserId || 'Ambassador';
   const rawMbti = session?.mbti || user?.mbti || 'INTJ';
   const mbti: MbtiType = (rawMbti in MBTI_ARCHETYPES) ? (rawMbti as MbtiType) : 'INTJ';
   const archetype = MBTI_ARCHETYPES[mbti] || MBTI_ARCHETYPES.INTJ;
   const twoFaStatus = getDiscord2FaStatus(discordId);
-  const [cardDataUrl, setCardDataUrl] = useState<string | null>(() => session?.cardDataUrl || null);
-  const [isGeneratingCard, setIsGeneratingCard] = useState<boolean>(() => !session?.cardDataUrl);
-  const photoUrl = session?.arrangedPhotoUrl || session?.defaultPhotoUrl || user?.arranged_photo_url || user?.photo_url || archetype.officialImageUrl;
+
+  // Discord アバター画像 (Blob URL 自動取得・キャッシュ対応)
+  const [localDiscordAvatar, setLocalDiscordAvatar] = useState<string>('');
+  const discordAvatarUrl = propDiscordAvatarUrl || localDiscordAvatar || getDiscordAvatarUrl(discordId, 128);
+
+  useEffect(() => {
+    if (propDiscordAvatarUrl || !discordId || discordId === 'Ambassador') return;
+    let isMounted = true;
+    fetchDiscordAvatarBlobUrl(discordId).then((url) => {
+      if (isMounted && url) {
+        setLocalDiscordAvatar(url);
+      }
+    }).catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [discordId, propDiscordAvatarUrl]);
+
+  // 選択されたスタイル（preferredStyle）に応じたカード描画用画像
+  const normalPhoto = session?.defaultPhotoUrl || user?.default_photo_url || archetype.officialImageUrl;
+  const equippedPhoto = session?.arrangedPhotoUrl || user?.arranged_photo_url || normalPhoto;
+  const discordPhoto = discordAvatarUrl || getDiscordAvatarUrl(discordId, 256);
+
+  const activePhotoUrl = (() => {
+    if (preferredStyle === 'discord') return discordPhoto;
+    if (preferredStyle === 'normal') return normalPhoto;
+    return equippedPhoto;
+  })();
+
+  const [cardDataUrl, setCardDataUrl] = useState<string | null>(() => (hasMoffy ? session?.cardDataUrl || null : null));
+  const [isCardError, setIsCardError] = useState(false);
+  const isGeneratingCard = hasMoffy && !cardDataUrl && !isCardError;
 
   // 編集用ローカルステート
   const [lastName, setLastName] = useState<string>(() => user?.last_name || session?.lastName || '');
@@ -60,28 +103,10 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const [birthday, setBirthday] = useState<string>(() => session?.birthday || '');
   const [showBirthday, setShowBirthday] = useState<boolean>(() => session?.showBirthday ?? false);
 
-  // Discord アバター画像 (Blob URL 自動取得・キャッシュ対応)
-  const [discordAvatarUrl, setDiscordAvatarUrl] = useState<string>(() => getDiscordAvatarUrl(discordId, 64));
-
+  // パートナーカードの自動生成・同期（診断済みユーザーのみ実行）
   useEffect(() => {
-    let isMounted = true;
-    if (discordId && discordId !== 'Ambassador') {
-      fetchDiscordAvatarBlobUrl(discordId).then((url) => {
-        if (isMounted && url) {
-          setDiscordAvatarUrl(url);
-        }
-      }).catch(() => {});
-    }
-    return () => {
-      isMounted = false;
-    };
-  }, [discordId]);
-
-  // パートナーカードの自動生成・同期（セッションに画像データが無い場合、Canvas上で即座に高解像度800x1000カードを生成）
-  useEffect(() => {
-    if (cardDataUrl) {
-      return;
-    }
+    // 🌟 未受講ユーザーの場合はカード生成を行わない
+    if (!hasMoffy) return;
 
     let isMounted = true;
 
@@ -110,12 +135,11 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             nickname: nickname || null,
             traitScores: scores,
           },
-          photoUrl
+          activePhotoUrl
         );
 
         if (isMounted) {
           setCardDataUrl(dataUrl);
-          setIsGeneratingCard(false);
 
           if (session) {
             const updated: UserMoffySession = {
@@ -134,7 +158,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       } catch (err) {
         console.warn('Failed to auto-generate partner card in ProfileTab:', err);
         if (isMounted) {
-          setIsGeneratingCard(false);
+          setIsCardError(true);
         }
       }
     }
@@ -144,7 +168,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [archetype, cardDataUrl, discordId, user, session, photoUrl, lastName, firstName, nickname, onUpdateSession]);
+  }, [hasMoffy, archetype, discordId, user, session, activePhotoUrl, lastName, firstName, nickname, onUpdateSession]);
 
   // SNSリンク一覧ステート
   const [snsLinks, setSnsLinks] = useState<SnsLinkItem[]>(() => {
@@ -284,36 +308,38 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
     // 3. 親コンポーネントへ通知（リアルタイム更新）
     onUpdateSession?.(updatedSession);
 
-    // 3-b. パートナーカードも最新の名前・ニックネームで即座に再生成してセッションへ反映
-    generateProfileCardBlob(
-      archetype,
-      {
-        discordUserId: discordId,
-        name: fullName,
-        lastName: cleanLastName || null,
-        firstName: cleanFirstName || null,
-        nickname: cleanNickname || null,
-        traitScores: updatedSession.traitScores,
-      },
-      photoUrl
-    )
-      .then(({ dataUrl }) => {
-        setCardDataUrl(dataUrl);
-        const sessionWithNewCard: UserMoffySession = {
-          ...updatedSession,
-          cardDataUrl: dataUrl,
-        };
-        try {
-          const storageKey = `moffy_user_session_${discordId}`;
-          localStorage.setItem(storageKey, JSON.stringify(sessionWithNewCard));
-        } catch (err) {
-          console.warn('Failed to save user session with card to localStorage:', err);
-        }
-        onUpdateSession?.(sessionWithNewCard);
-      })
-      .catch((err) => {
-        console.warn('Failed to regenerate partner card on profile save:', err);
-      });
+    // 3-b. パートナーカードも最新の名前・ニックネームで即座に再生成してセッションへ反映（診断済みユーザーのみ）
+    if (hasMoffy) {
+      generateProfileCardBlob(
+        archetype,
+        {
+          discordUserId: discordId,
+          name: fullName,
+          lastName: cleanLastName || null,
+          firstName: cleanFirstName || null,
+          nickname: cleanNickname || null,
+          traitScores: updatedSession.traitScores,
+        },
+        activePhotoUrl
+      )
+        .then(({ dataUrl }) => {
+          setCardDataUrl(dataUrl);
+          const sessionWithNewCard: UserMoffySession = {
+            ...updatedSession,
+            cardDataUrl: dataUrl,
+          };
+          try {
+            const storageKey = `moffy_user_session_${discordId}`;
+            localStorage.setItem(storageKey, JSON.stringify(sessionWithNewCard));
+          } catch (err) {
+            console.warn('Failed to save user session with card to localStorage:', err);
+          }
+          onUpdateSession?.(sessionWithNewCard);
+        })
+        .catch((err) => {
+          console.warn('Failed to regenerate partner card on profile save:', err);
+        });
+    }
 
     // 4. 保存成功フィードバック
     setSavedSuccess(true);
@@ -336,7 +362,31 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
 
       {/* 🌟 1. 公式パートナーカード（800x1000 PNG画像） */}
       <div data-tutorial-id="tutorial-complete-card" className="flex flex-col items-center">
-        {isGeneratingCard ? (
+        {!hasMoffy ? (
+          /* 🌟 未診断時: パートナーカードは表示せず、性格診断案内を表示 */
+          <div className={`w-full rounded-2xl border p-6 text-center space-y-3 transition-colors ${
+            isDarkMode ? 'border-neutral-800 bg-neutral-900/60 text-neutral-100' : 'border-neutral-200 bg-white text-neutral-900 shadow-sm'
+          }`}>
+            <div className="space-y-1">
+              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold text-[#1a73e8] dark:text-[#8ab4f8]">
+                Official Partner Card
+              </span>
+              <h4 className="text-sm font-semibold">公式パートナーカード</h4>
+              <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-neutral-400' : 'text-neutral-600'}`}>
+                性格診断を受けると、あなただけのモッフィーが描かれた公式パートナーカードが発行されます。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = './index.html?start_quiz=true';
+              }}
+              className="w-full min-h-[42px] py-2 px-4 rounded-xl text-xs font-semibold text-white bg-[#1a73e8] hover:bg-[#1557b0] transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <span>性格診断を受ける</span>
+            </button>
+          </div>
+        ) : isGeneratingCard ? (
           <div className={`w-full rounded-2xl border p-8 flex flex-col items-center justify-center gap-3 transition-colors ${
             isDarkMode ? 'border-neutral-800 bg-neutral-900' : 'border-neutral-200 bg-white shadow-sm'
           }`}>
@@ -368,9 +418,9 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           <div className={`w-full rounded-2xl border p-6 flex flex-col items-center text-center shadow-sm ${
             isDarkMode ? 'border-neutral-800 bg-neutral-900' : 'border-neutral-200 bg-white'
           }`}>
-            {photoUrl ? (
+            {activePhotoUrl ? (
               <img
-                src={photoUrl}
+                src={activePhotoUrl}
                 alt={archetype.title}
                 className="w-40 h-40 rounded-2xl object-contain mb-3 drop-shadow-md"
               />
@@ -594,7 +644,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           <div className="flex justify-between items-center py-1">
             <span className={isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}>パートナーモッフィー</span>
             <span className={`font-semibold ${isDarkMode ? 'text-neutral-200' : 'text-neutral-800'}`}>
-              {archetype.title} [{mbti}]
+              {hasMoffy ? `${archetype.title} [${mbti}]` : '未診断'}
             </span>
           </div>
         </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Copy, Check, Sparkles } from 'lucide-react';
-import type { UserMoffySession, MbtiType } from '../../types';
+import type { UserMoffySession, MbtiType, MoffyIconStyle } from '../../types';
 import type { AuthUser } from '../../utils/oauthClient';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
 import { generateMoffyQrDataUrl, createPassportQrPayload } from '../../utils/qrUtils';
@@ -9,7 +9,8 @@ interface FriendExchangeTabProps {
   user: AuthUser | null;
   session: UserMoffySession | null;
   isDarkMode: boolean;
-  preferredStyle?: 'normal' | 'equipped';
+  preferredStyle?: MoffyIconStyle;
+  discordAvatarUrl?: string;
 }
 
 export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
@@ -17,6 +18,7 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
   session,
   isDarkMode,
   preferredStyle,
+  discordAvatarUrl,
 }) => {
   // 🌟 性格診断受講・モッフィー作成済み判定
   const hasMoffy = Boolean(
@@ -51,14 +53,16 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
       : `${baseUrl}${archetype.officialImageUrl.replace(/^\/+/, '')}`
     : `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`;
 
-  // スワイプで選択されたモッフィー画像（ノーマル vs 装備）を完全連動
-  const activeStyle: 'normal' | 'equipped' =
+  // スワイプ・タップで選択されたアイコン（ノーマル vs 装備 vs Discord）を完全連動
+  const activeStyle: MoffyIconStyle =
     preferredStyle ||
     session?.preferredStyle ||
     (() => {
       try {
         const saved = localStorage.getItem('moffy_preferred_style');
-        if (saved === 'normal' || saved === 'equipped') return saved;
+        if (saved === 'normal' || saved === 'equipped' || saved === 'discord') {
+          return saved as MoffyIconStyle;
+        }
       } catch {
         // ignore
       }
@@ -67,7 +71,14 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
 
   const normalPhoto = session?.defaultPhotoUrl || user?.default_photo_url || defaultMoffyImg;
   const equippedPhoto = session?.arrangedPhotoUrl || user?.arranged_photo_url || normalPhoto;
-  const moffyPhotoUrl = activeStyle === 'normal' ? normalPhoto : equippedPhoto;
+  const discordPhoto = discordAvatarUrl || user?.photo_url || '';
+
+  const moffyPhotoUrl =
+    activeStyle === 'discord'
+      ? (discordPhoto || normalPhoto)
+      : activeStyle === 'normal'
+      ? normalPhoto
+      : equippedPhoto;
 
   const birthday = session?.birthday;
   const showBirthday = session?.showBirthday;

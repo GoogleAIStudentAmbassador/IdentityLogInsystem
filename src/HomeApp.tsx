@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Sun, Moon, Loader2 } from 'lucide-react';
 import { MoffyAuthClient } from './utils/oauthClient';
 import type { AuthUser } from './utils/oauthClient';
-import type { UserMoffySession } from './types';
+import type { UserMoffySession, MoffyIconStyle, FriendItem } from './types';
 import { PassportTab } from './components/home/PassportTab';
 import { MoffyDexTab } from './components/home/MoffyDexTab';
 import { FriendExchangeTab } from './components/home/FriendExchangeTab';
@@ -11,7 +11,7 @@ import { FriendsTab } from './components/home/FriendsTab';
 import { FloatingBottomNav } from './components/home/FloatingBottomNav';
 import type { MainTab } from './components/home/FloatingBottomNav';
 import { getFriendList, getTutorialStatus, saveTutorialCompleted } from './services/api';
-import type { FriendItem } from './types';
+import { getDiscordAvatarUrl, fetchDiscordAvatarBlobUrl } from './services/discordApi';
 import { TUTORIAL_STEPS } from './types';
 import { TutorialOverlay } from './components/home/TutorialOverlay';
 
@@ -131,6 +131,26 @@ export const HomeApp: React.FC = () => {
     user?.default_photo_url
   );
 
+  // 🌟 Discord プロフィール画像 (Blob URL 自動取得・キャッシュ)
+  const [discordAvatarUrl, setDiscordAvatarUrl] = useState<string>(() => getDiscordAvatarUrl(discordUserId, 128));
+
+  useEffect(() => {
+    if (!discordUserId || discordUserId === 'Ambassador') return;
+    let isMounted = true;
+
+    fetchDiscordAvatarBlobUrl(discordUserId)
+      .then((blobUrl) => {
+        if (isMounted && blobUrl) {
+          setDiscordAvatarUrl(blobUrl);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [discordUserId]);
+
   // フレンド一覧の取得（図鑑の解放状況・フレンドタブで共用）
   useEffect(() => {
     if (!discordUserId) return;
@@ -197,17 +217,19 @@ export const HomeApp: React.FC = () => {
     };
   }, [discordUserId, hasMoffy]);
 
-  const [preferredStyle, setPreferredStyle] = useState<'normal' | 'equipped'>(() => {
+  const [preferredStyle, setPreferredStyle] = useState<MoffyIconStyle>(() => {
     try {
       const saved = localStorage.getItem('moffy_preferred_style');
-      if (saved === 'normal' || saved === 'equipped') return saved;
+      if (saved === 'normal' || saved === 'equipped' || saved === 'discord') {
+        return saved as MoffyIconStyle;
+      }
     } catch {
       // ignore
     }
     return 'equipped';
   });
 
-  const handleStyleChange = useCallback((style: 'normal' | 'equipped') => {
+  const handleStyleChange = useCallback((style: MoffyIconStyle) => {
     setPreferredStyle(style);
     setSession((prev) => (prev ? { ...prev, preferredStyle: style } : null));
   }, []);
@@ -287,12 +309,26 @@ export const HomeApp: React.FC = () => {
     window.location.href = './oauth.html';
   };
 
-  const avatarUrl =
-    session?.arrangedPhotoUrl ||
-    session?.defaultPhotoUrl ||
-    user?.arranged_photo_url ||
-    user?.photo_url ||
-    null;
+  // 🌟 下部ナビゲーションのプロフィールアイコン（未診断時はDiscord、診断済み時はpreferredStyleに連動）
+  const avatarUrl = (() => {
+    if (!hasMoffy) {
+      return discordAvatarUrl || null;
+    }
+    if (preferredStyle === 'discord') {
+      return discordAvatarUrl || null;
+    }
+    if (preferredStyle === 'normal') {
+      return session?.defaultPhotoUrl || user?.default_photo_url || null;
+    }
+    // 'equipped'
+    return (
+      session?.arrangedPhotoUrl ||
+      user?.arranged_photo_url ||
+      session?.defaultPhotoUrl ||
+      user?.default_photo_url ||
+      null
+    );
+  })();
 
   if (!authClient.isAuthenticated() && !(typeof window !== 'undefined' && window.location.hash.includes('access_token'))) {
     return (
@@ -372,6 +408,8 @@ export const HomeApp: React.FC = () => {
             user={user}
             session={session}
             isDarkMode={isDarkMode}
+            preferredStyle={preferredStyle}
+            discordAvatarUrl={discordAvatarUrl}
             onStyleChange={handleStyleChange}
           />
         )}
@@ -390,6 +428,7 @@ export const HomeApp: React.FC = () => {
             session={session}
             isDarkMode={isDarkMode}
             preferredStyle={preferredStyle}
+            discordAvatarUrl={discordAvatarUrl}
           />
         )}
         {activeTab === 'profile' && (
@@ -399,6 +438,8 @@ export const HomeApp: React.FC = () => {
             onLogout={handleLogout}
             onBackToQuiz={handleBackToQuiz}
             isDarkMode={isDarkMode}
+            preferredStyle={preferredStyle}
+            discordAvatarUrl={discordAvatarUrl}
             onUpdateSession={handleUpdateSession}
             onRestartTutorial={handleRestartTutorial}
           />

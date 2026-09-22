@@ -200,6 +200,8 @@ export interface SnsLinkItem {
   value: string;
 }
 
+export type MoffyIconStyle = 'normal' | 'equipped' | 'discord';
+
 export interface UserMoffySession {
   discordUserId: string;
   name?: string | null;
@@ -213,7 +215,7 @@ export interface UserMoffySession {
   defaultPhotoUrl?: string | null;
   grade?: string | null;
   university?: string | null;
-  preferredStyle?: 'normal' | 'equipped';
+  preferredStyle?: MoffyIconStyle;
   snsLinks?: SnsLinkItem[];
   birthday?: string;
   showBirthday?: boolean;
