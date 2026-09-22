@@ -238,7 +238,11 @@ export const App: React.FC = () => {
       const hasArrangedMoffy = !!(arrangedPhoto && arrangedPhoto.trim());
       setHasMoffy(hasArrangedMoffy);
 
-      if (hasArrangedMoffy) {
+      const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const isRetake = urlParams?.get('retake') === 'true';
+      const isExplicitQuizStart = urlParams?.get('start_quiz') === 'true' || isRetake;
+
+      if (hasArrangedMoffy && !isRetake) {
         const resolvedMbti = (localSession?.mbti || userResult.mbti || 'INTJ') as MbtiType;
         const archetypeToUse = MBTI_ARCHETYPES[resolvedMbti] || MBTI_ARCHETYPES.INTJ;
         setSelectedArchetype(archetypeToUse);
@@ -285,6 +289,13 @@ export const App: React.FC = () => {
         });
 
         // 🌟 診断済みアカウント: コミュニティポータル (home.html) へ直行
+        window.location.replace('./home.html');
+        return;
+      }
+
+      // 🌟 性格診断の強制撤廃: 明示的な開始パラメータ（start_quiz=true または retake=true）がない場合、home.htmlへ直行
+
+      if (!isExplicitQuizStart && !hasCallbackHash) {
         window.location.replace('./home.html');
         return;
       }

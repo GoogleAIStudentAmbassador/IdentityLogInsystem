@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { ChevronRight } from 'lucide-react';
 import type { UserMoffySession, MbtiType } from '../../types';
 import type { AuthUser } from '../../utils/oauthClient';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
@@ -16,6 +17,16 @@ export const PassportTab: React.FC<PassportTabProps> = ({
   isDarkMode,
   onStyleChange,
 }) => {
+  // 🌟 性格診断受講・モッフィー作成済み判定
+  const hasMoffy = Boolean(
+    session?.mbti ||
+    user?.mbti ||
+    session?.arrangedPhotoUrl ||
+    session?.defaultPhotoUrl ||
+    user?.arranged_photo_url ||
+    user?.default_photo_url
+  );
+
   // 初期スタイル: session または localStorage から復元
   const getInitialStyle = (): 'normal' | 'equipped' => {
     if (session?.preferredStyle) return session.preferredStyle;
@@ -50,7 +61,7 @@ export const PassportTab: React.FC<PassportTabProps> = ({
   // 画像ソースの整理（ノーマル vs 装備）
   const normalImgSrc = session?.defaultPhotoUrl || user?.default_photo_url || defaultMoffyImg;
   const equippedImgSrc = session?.arrangedPhotoUrl || user?.arranged_photo_url || normalImgSrc;
-  const canToggle = equippedImgSrc !== normalImgSrc;
+  const canToggle = hasMoffy && equippedImgSrc !== normalImgSrc;
 
   // モード切替 ＆ 永続化（QR連動用）
   const handleModeChange = (mode: 'normal' | 'equipped') => {
@@ -174,35 +185,44 @@ export const PassportTab: React.FC<PassportTabProps> = ({
               }}
             />
 
-            {/* 水晶の内部で優雅に無重力浮遊するモッフィー */}
+            {/* 水晶の内部で優雅に無重力浮遊するモッフィー または 未作成時の「？」 */}
             <div className="relative z-10 w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center animate-crystal-float">
-              {/* ノーマルモッフィー */}
-              <img
-                src={normalImgSrc}
-                alt={`${archetype.title} (Normal)`}
-                className={`absolute inset-0 w-full h-full object-cover rounded-full select-none pointer-events-none drop-shadow-[0_12px_24px_rgba(0,0,0,0.65)] transition-all duration-500 ease-out ${
-                  activeMode === 'normal'
-                    ? 'opacity-100 scale-100 translate-x-0'
-                    : 'opacity-0 scale-90 -translate-x-6 pointer-events-none'
-                }`}
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`;
-                }}
-              />
+              {hasMoffy ? (
+                <>
+                  {/* ノーマルモッフィー */}
+                  <img
+                    src={normalImgSrc}
+                    alt={`${archetype.title} (Normal)`}
+                    className={`absolute inset-0 w-full h-full object-cover rounded-full select-none pointer-events-none drop-shadow-[0_12px_24px_rgba(0,0,0,0.65)] transition-all duration-500 ease-out ${
+                      activeMode === 'normal'
+                        ? 'opacity-100 scale-100 translate-x-0'
+                        : 'opacity-0 scale-90 -translate-x-6 pointer-events-none'
+                    }`}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`;
+                    }}
+                  />
 
-              {/* アクセサリー装備モッフィー */}
-              <img
-                src={equippedImgSrc}
-                alt={`${archetype.title} (Equipped)`}
-                className={`absolute inset-0 w-full h-full object-cover rounded-full select-none pointer-events-none drop-shadow-[0_12px_24px_rgba(0,0,0,0.65)] transition-all duration-500 ease-out ${
-                  activeMode === 'equipped'
-                    ? 'opacity-100 scale-100 translate-x-0'
-                    : 'opacity-0 scale-90 translate-x-6 pointer-events-none'
-                }`}
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = normalImgSrc;
-                }}
-              />
+                  {/* アクセサリー装備モッフィー */}
+                  <img
+                    src={equippedImgSrc}
+                    alt={`${archetype.title} (Equipped)`}
+                    className={`absolute inset-0 w-full h-full object-cover rounded-full select-none pointer-events-none drop-shadow-[0_12px_24px_rgba(0,0,0,0.65)] transition-all duration-500 ease-out ${
+                      activeMode === 'equipped'
+                        ? 'opacity-100 scale-100 translate-x-0'
+                        : 'opacity-0 scale-90 translate-x-6 pointer-events-none'
+                    }`}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = normalImgSrc;
+                    }}
+                  />
+                </>
+              ) : (
+                /* 🌟 未作成時: 中央に大きな「？」を表示 */
+                <span className="text-7xl sm:text-8xl font-light font-mono text-neutral-400 dark:text-neutral-500 select-none drop-shadow-sm">
+                  ?
+                </span>
+              )}
             </div>
 
             {/* ガラス表面の光沢ハイライト */}
@@ -210,8 +230,8 @@ export const PassportTab: React.FC<PassportTabProps> = ({
           </div>
         </div>
 
-        {/* スタイル切替ピルタブ ＆ 操作ガイド */}
-        {canToggle && (
+        {/* スタイル切替ピルタブ ＆ 操作ガイド（モッフィー作成済みかつ切替可能な場合のみ表示） */}
+        {hasMoffy && canToggle && (
           <div className="relative z-20 flex flex-col items-center gap-2 mt-2">
             <div className={`inline-flex items-center p-0.5 rounded-full border backdrop-blur-md ${
               isDarkMode ? 'bg-neutral-800/80 border-neutral-700' : 'bg-neutral-100 border-neutral-200 shadow-sm'
@@ -255,6 +275,40 @@ export const PassportTab: React.FC<PassportTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* 🌟 未受講時のみ表示されるチュートリアルセクション（受講後は完全非表示） */}
+      {!hasMoffy && (
+        <div className={`mt-6 w-full max-w-sm rounded-2xl p-5 border text-center space-y-3.5 transition-colors ${
+          isDarkMode
+            ? 'border-neutral-800 bg-neutral-900/60 text-neutral-100'
+            : 'border-neutral-200 bg-white text-neutral-900 shadow-sm'
+        }`}>
+          <div className="space-y-1">
+            <span className="text-[11px] font-mono uppercase tracking-wider font-semibold text-[#1a73e8] dark:text-[#8ab4f8]">
+              チュートリアル
+            </span>
+            <h3 className="text-sm sm:text-base font-semibold">
+              あなただけの相棒を見つけよう
+            </h3>
+            <p className={`text-xs leading-relaxed ${
+              isDarkMode ? 'text-neutral-400' : 'text-neutral-600'
+            }`}>
+              性格診断（全16問）を受けて、あなたの個性を宿したパートナーモッフィーと出会いましょう。
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = './index.html?start_quiz=true';
+            }}
+            className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-[#1a73e8] hover:bg-[#1557b0] transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <span>性格診断を受ける</span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

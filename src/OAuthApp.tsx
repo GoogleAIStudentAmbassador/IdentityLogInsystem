@@ -35,7 +35,7 @@ function parseOAuthParams(): OAuthParams {
   if (typeof window === 'undefined') {
     return {
       clientId: 'moffy-app',
-      redirectUri: './index.html',
+      redirectUri: './home.html',
       state: '',
       scope: 'profile',
       responseType: 'token',
@@ -45,8 +45,8 @@ function parseOAuthParams(): OAuthParams {
   const params = new URLSearchParams(window.location.search);
   const clientId = params.get('client_id') || 'moffy-personality-quiz';
   
-  // デフォルトのリダイレクト先は同階層の index.html (性格診断ページ)
-  const defaultRedirect = `${window.location.origin}${window.location.pathname.replace(/\/[^/]*$/, '')}/index.html`;
+  // デフォルトのリダイレクト先は同階層の home.html (アンバサダーポータル)
+  const defaultRedirect = `${window.location.origin}${window.location.pathname.replace(/\/[^/]*$/, '')}/home.html`;
   const rawRedirectUri = params.get('redirect_uri') || defaultRedirect;
 
   // 🌟 state パラメータが明示されない直接アクセスの際も、安全なランダムstateを補填

@@ -18,9 +18,20 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
   isDarkMode,
   preferredStyle,
 }) => {
+  // 🌟 性格診断受講・モッフィー作成済み判定
+  const hasMoffy = Boolean(
+    session?.mbti ||
+    user?.mbti ||
+    session?.arrangedPhotoUrl ||
+    session?.defaultPhotoUrl ||
+    user?.arranged_photo_url ||
+    user?.default_photo_url
+  );
+
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copied, setCopied] = useState(false);
-  const [isLoadingQr, setIsLoadingQr] = useState(true);
+  const [isQrError, setIsQrError] = useState(false);
+  const isLoadingQr = hasMoffy && !qrDataUrl && !isQrError;
 
   const discordUserId = user?.discord_user_id || session?.discordUserId || 'Ambassador';
   const lastName = user?.last_name || session?.lastName || '';
@@ -64,6 +75,8 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
 
   // QRコード生成（中央に選択されたモッフィー画像を合成）
   useEffect(() => {
+    if (!hasMoffy) return;
+
     let isMounted = true;
 
     const payload = createPassportQrPayload({
@@ -85,20 +98,19 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
       .then((url) => {
         if (isMounted) {
           setQrDataUrl(url);
-          setIsLoadingQr(false);
         }
       })
       .catch((err) => {
         console.error('Failed to generate Moffy QR:', err);
         if (isMounted) {
-          setIsLoadingQr(false);
+          setIsQrError(true);
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [discordUserId, fullName, lastName, firstName, nickname, mbti, university, grade, moffyPhotoUrl, birthday, showBirthday, snsLinks]);
+  }, [hasMoffy, discordUserId, fullName, lastName, firstName, nickname, mbti, university, grade, moffyPhotoUrl, birthday, showBirthday, snsLinks]);
 
   // Discord ID コピー処理
   const handleCopyDiscordId = useCallback(async () => {
@@ -186,7 +198,7 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
               <span className={`px-2 py-0.5 rounded text-[11px] font-mono shrink-0 border ${
                 isDarkMode ? 'border-neutral-700 bg-neutral-800 text-neutral-200' : 'border-neutral-200 bg-neutral-100 text-neutral-800'
               }`}>
-                {mbti}
+                {hasMoffy ? mbti : '未診断'}
               </span>
             </div>
 
@@ -234,40 +246,76 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
                 交換用 QR コード
               </div>
 
-              {/* QRコード表示ラッパー（白背景固定でスキャン安定性を確保） */}
-              <div className="relative p-4 rounded-2xl bg-white shadow-md border border-neutral-200/80 max-w-[280px] w-full aspect-square flex items-center justify-center overflow-hidden">
-                {isLoadingQr ? (
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <div className="w-8 h-8 border-2 border-neutral-300 border-t-[#4285f4] rounded-full animate-spin" />
-                    <span className="text-[11px] text-neutral-500 font-mono">QRコード生成中...</span>
+              {!hasMoffy ? (
+                <div
+                  className={`w-full max-w-[280px] p-6 rounded-2xl border flex flex-col items-center justify-center text-center gap-3 transition-colors ${
+                    isDarkMode
+                      ? 'bg-neutral-900/60 border-neutral-800'
+                      : 'bg-neutral-50 border-neutral-200'
+                  }`}
+                >
+                  <div
+                    className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl font-bold font-mono shadow-xs ${
+                      isDarkMode
+                        ? 'bg-neutral-800 text-neutral-400 border border-neutral-700'
+                        : 'bg-neutral-200 text-neutral-600 border border-neutral-300'
+                    }`}
+                  >
+                    ?
                   </div>
-                ) : qrDataUrl ? (
-                  <div className="relative w-full h-full flex items-center justify-center">
-                    {/* QRコード画像本体 */}
-                    <img
-                      src={qrDataUrl}
-                      alt="Friend Exchange QR Code"
-                      className="w-full h-full object-contain block"
-                    />
+                  <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-neutral-400' : 'text-neutral-600'}`}>
+                    性格診断を受けると、あなただけのモッフィーQRコードが発行されます
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.location.href = './index.html?start_quiz=true';
+                    }}
+                    className={`w-full py-3 px-4 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer shadow-sm active:scale-[0.98] ${
+                      isDarkMode
+                        ? 'bg-neutral-100 hover:bg-white text-neutral-950'
+                        : 'bg-neutral-900 hover:bg-black text-white'
+                    }`}
+                  >
+                    性格診断をやってからまた来てね！
+                  </button>
+                </div>
+              ) : (
+                /* QRコード表示ラッパー（白背景固定でスキャン安定性を確保） */
+                <div className="relative p-4 rounded-2xl bg-white shadow-md border border-neutral-200/80 max-w-[280px] w-full aspect-square flex items-center justify-center overflow-hidden">
+                  {isLoadingQr ? (
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <div className="w-8 h-8 border-2 border-neutral-300 border-t-[#4285f4] rounded-full animate-spin" />
+                      <span className="text-[11px] text-neutral-500 font-mono">QRコード生成中...</span>
+                    </div>
+                  ) : qrDataUrl ? (
+                    <div className="relative w-full h-full flex items-center justify-center">
+                      {/* QRコード画像本体 */}
+                      <img
+                        src={qrDataUrl}
+                        alt="Friend Exchange QR Code"
+                        className="w-full h-full object-contain block"
+                      />
 
-                    {/* 🌟 QRコード中央に確実に鎮座するパートナーモッフィー */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center">
-                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white p-0.5 shadow-md border-2 border-white flex items-center justify-center overflow-hidden">
-                        <img
-                          src={moffyPhotoUrl}
-                          alt="Center Moffy"
-                          className="w-full h-full object-cover rounded-full"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).src = '/moffies/intj.jpg';
-                          }}
-                        />
+                      {/* 🌟 QRコード中央に確実に鎮座するパートナーモッフィー */}
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center">
+                        <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white p-0.5 shadow-md border-2 border-white flex items-center justify-center overflow-hidden">
+                          <img
+                            src={moffyPhotoUrl}
+                            alt="Center Moffy"
+                            className="w-full h-full object-cover rounded-full"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).src = '/moffies/intj.jpg';
+                            }}
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="text-xs text-neutral-500">QRコードの生成に失敗しました</div>
-                )}
-              </div>
+                  ) : (
+                    <div className="text-xs text-neutral-500">QRコードの生成に失敗しました</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

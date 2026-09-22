@@ -121,6 +121,16 @@ export const HomeApp: React.FC = () => {
 
   const discordUserId = user?.discord_user_id || session?.discordUserId || '';
 
+  // 🌟 性格診断受講・モッフィー作成済み判定
+  const hasMoffy = Boolean(
+    session?.mbti ||
+    user?.mbti ||
+    session?.arrangedPhotoUrl ||
+    session?.defaultPhotoUrl ||
+    user?.arranged_photo_url ||
+    user?.default_photo_url
+  );
+
   // フレンド一覧の取得（図鑑の解放状況・フレンドタブで共用）
   useEffect(() => {
     if (!discordUserId) return;
@@ -164,6 +174,11 @@ export const HomeApp: React.FC = () => {
     getTutorialStatus(discordUserId)
       .then((status) => {
         if (!isMounted) return;
+        // モッフィー未作成時は、ホーム画面の「チュートリアル：性格診断を受ける」を最優先とし、操作チュートリアルオーバーレイは起動しない
+        if (!hasMoffy) {
+          setIsTutorialActive(false);
+          return;
+        }
         if (!status || !status.tutorialCompleted) {
           // 初回起動！チュートリアルを開始
           setIsTutorialActive(true);
@@ -180,7 +195,7 @@ export const HomeApp: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [discordUserId]);
+  }, [discordUserId, hasMoffy]);
 
   const [preferredStyle, setPreferredStyle] = useState<'normal' | 'equipped'>(() => {
     try {
@@ -264,7 +279,7 @@ export const HomeApp: React.FC = () => {
   }, []);
 
   const handleBackToQuiz = () => {
-    window.location.href = './index.html';
+    window.location.href = './index.html?retake=true';
   };
 
   const handleLogout = () => {
@@ -408,8 +423,8 @@ export const HomeApp: React.FC = () => {
         isDarkMode={isDarkMode}
       />
 
-      {/* 🌟 初回起動インタラクティブ・チュートリアルオーバーレイ */}
-      {isTutorialActive && (
+      {/* 🌟 初回起動インタラクティブ・チュートリアルオーバーレイ（モッフィー作成済みユーザーのみ） */}
+      {hasMoffy && isTutorialActive && (
         <TutorialOverlay
           currentStep={currentTutorialStep}
           onNextStep={handleNextTutorialStep}
