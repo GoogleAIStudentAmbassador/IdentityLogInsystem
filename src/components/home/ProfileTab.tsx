@@ -399,7 +399,10 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       </div>
 
       {/* 🌟 2. 編集可能なプロフィール情報フォーム */}
-      <form onSubmit={handleSaveProfile} className={`p-4 sm:p-5 rounded-2xl border space-y-4 text-xs transition-colors ${
+      <form
+        data-tutorial-id="tutorial-profile-edit"
+        onSubmit={handleSaveProfile}
+        className={`p-4 sm:p-5 rounded-2xl border space-y-4 text-xs transition-colors ${
         isDarkMode ? 'border-neutral-800 bg-neutral-900/60' : 'border-neutral-200 bg-white shadow-sm'
       }`}>
         <div className={`flex items-center justify-between border-b pb-3 ${
@@ -597,7 +600,10 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
         </div>
 
         {/* 🌟 3. SNSリンク設定セクション */}
-        <div className={`pt-3 border-t space-y-3 ${isDarkMode ? 'border-neutral-800' : 'border-neutral-100'}`}>
+        <div
+          data-tutorial-id="tutorial-sns-section"
+          className={`pt-3 border-t space-y-3 ${isDarkMode ? 'border-neutral-800' : 'border-neutral-100'}`}
+        >
           <div className="flex items-center justify-between">
             <label className={`font-semibold text-xs ${isDarkMode ? 'text-neutral-200' : 'text-neutral-800'}`}>
               SNS・外部リンク設定

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Sparkles, X, ChevronRight, Check } from 'lucide-react';
-import confetti from 'canvas-confetti';
+import { X, ChevronRight, Check } from 'lucide-react';
 import { TUTORIAL_STEPS } from '../../types';
 
 interface TutorialOverlayProps {
@@ -29,14 +28,12 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
     const el = document.querySelector(stepConfig.selector);
     if (el) {
       const rect = el.getBoundingClientRect();
-      // 有効な寸法がある場合のみセット
       if (rect.width > 0 && rect.height > 0) {
         setTargetRect(rect);
         setIsReady(true);
         return;
       }
     }
-    // まだ描画されていない場合は待機
     setIsReady(false);
   }, [stepConfig]);
 
@@ -45,7 +42,7 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
       updateTargetRect();
     });
 
-    // 画面外の場合はスムーズにスクロール
+    // 画面外またはスクロール対象の場合は自動でスムーズスクロール
     const el = document.querySelector(stepConfig.selector);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
@@ -61,14 +58,14 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
     window.addEventListener('resize', handleResizeOrScroll, { passive: true });
     window.addEventListener('scroll', handleResizeOrScroll, { passive: true, capture: true });
 
-    // DOM変化の監視（タブ遷移や非同期ローディング対応）
+    // DOM変化・タブ遷移の監視
     const observer = new MutationObserver(() => {
       updateTargetRect();
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true });
 
-    // 定期的な短インターバルポーリング（描画アニメーション追従）
-    const interval = setInterval(updateTargetRect, 250);
+    // 定期ポーリング（スクロール完了やレンダリング追従）
+    const interval = setInterval(updateTargetRect, 200);
 
     return () => {
       cancelAnimationFrame(initRaf);
@@ -80,36 +77,23 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
     };
   }, [stepConfig, updateTargetRect]);
 
-  // ターゲット要素への実クリックをキャプチャして次ステップへ進行
+  // ターゲット要素への実クリックをキャプチャ（Step 1 でプロフィールアイコン直接タップを検知）
   useEffect(() => {
     if (!stepConfig) return;
 
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const handleGlobalClick = (e: MouseEvent) => {
+      // Step 1 などの実クリック誘導時
       const targetEl = document.querySelector(stepConfig.selector);
       if (!targetEl) return;
 
       const clickTarget = e.target as Node | null;
       if (clickTarget && (targetEl === clickTarget || targetEl.contains(clickTarget))) {
-        // ターゲットが実際にクリックされた！
-        // 少しディレイを設けて、要素本来のクリック処理（タブ遷移・コピー等）が走った後に次ステップへ進める
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => {
-          if (stepConfig.id === 5) {
-            try {
-              confetti({
-                particleCount: 80,
-                spread: 70,
-                origin: { y: 0.6 },
-                colors: ['#4285f4', '#ea4335', '#fbbc04', '#34a853'],
-              });
-            } catch {
-              // ignore
-            }
-          }
           onNextStep(stepConfig.id);
-        }, 300);
+        }, 250);
       }
     };
 
@@ -120,22 +104,8 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
     };
   }, [stepConfig, onNextStep]);
 
-  const handleFinalStepComplete = () => {
-    try {
-      confetti({
-        particleCount: 100,
-        spread: 80,
-        origin: { y: 0.5 },
-        colors: ['#4285f4', '#ea4335', '#fbbc04', '#34a853'],
-      });
-    } catch {
-      // ignore
-    }
-    onNextStep(stepConfig.id);
-  };
-
-  // スポットライト位置・サイズ（パディング付加）
-  const padding = 8;
+  // スポットライト位置・サイズ（余白付加）
+  const padding = 6;
   const spotStyle = targetRect
     ? {
         top: Math.max(0, targetRect.top - padding),
@@ -145,17 +115,17 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
       }
     : null;
 
-  // ポップオーバーの配置計算（画面上下どちらの空きスペースが大きいかで決定）
-  const isTargetInUpperHalf = targetRect ? targetRect.top < window.innerHeight / 2 : true;
+  // ポップオーバーの上下配置判定（ターゲットが画面下部にあれば上部に表示）
+  const isTargetInLowerHalf = targetRect ? targetRect.top > window.innerHeight * 0.45 : false;
 
   return (
     <div className="fixed inset-0 z-50 pointer-events-none select-none transition-all duration-300">
-      {/* 1. 背景暗幕マスク（ターゲットスポットライトのくり抜き） */}
+      {/* 1. 背景暗幕マスク（ターゲット要素のスポットライトくり抜き） */}
       {spotStyle && (
         <div
           className="absolute inset-0 pointer-events-auto"
           style={{
-            background: 'rgba(0, 0, 0, 0.72)',
+            background: 'rgba(0, 0, 0, 0.65)',
             clipPath: `polygon(
               0% 0%, 0% 100%, 100% 100%, 100% 0%,
               0% 0%,
@@ -167,17 +137,16 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
             )`,
           }}
           onClick={(e) => {
-            // 暗幕クリック時は背景要素の誤操作を防止
             e.stopPropagation();
           }}
         />
       )}
 
       {!spotStyle && (
-        <div className="absolute inset-0 bg-black/70 pointer-events-auto" />
+        <div className="absolute inset-0 bg-black/65 pointer-events-auto" />
       )}
 
-      {/* 2. ターゲット要素を強調するハイライト枠 ＆ Googleカラーパルスリング */}
+      {/* 2. ターゲット枠線ハイライト（単色・端正なフォーカスリング） */}
       {spotStyle && isReady && (
         <div
           style={{
@@ -186,132 +155,95 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
             left: spotStyle.left,
             width: spotStyle.width,
             height: spotStyle.height,
-            borderRadius: '24px',
+            borderRadius: '16px',
           }}
-          className="pointer-events-none transition-all duration-300 ring-2 ring-white/90 shadow-[0_0_24px_rgba(66,133,244,0.7)] animate-pulse"
-        >
-          {/* 外周のGoogle 4色グラデーションリング */}
-          <div
-            className="absolute -inset-1 rounded-[28px] opacity-75 blur-[2px] animate-spin-slow pointer-events-none"
-            style={{
-              background: 'conic-gradient(from 0deg, #4285f4, #ea4335, #fbbc04, #34a853, #4285f4)',
-            }}
-          />
-        </div>
+          className="pointer-events-none transition-all duration-200 ring-2 ring-[#1a73e8] dark:ring-[#8ab4f8] shadow-sm"
+        />
       )}
 
-      {/* 3. 指アイコン・誘導バウンスポインター */}
-      {spotStyle && isReady && (
-        <div
-          style={{
-            position: 'absolute',
-            ...(stepConfig.pointerDirection === 'down'
-              ? {
-                  top: Math.max(12, spotStyle.top - 58),
-                  left: spotStyle.left + spotStyle.width / 2 - 24,
-                }
-              : {
-                  top: Math.min(window.innerHeight - 60, spotStyle.top + spotStyle.height + 14),
-                  left: spotStyle.left + spotStyle.width / 2 - 24,
-                }),
-          }}
-          className="pointer-events-none z-50 flex flex-col items-center animate-bounce"
-        >
-          {stepConfig.pointerDirection === 'down' ? (
-            <div className="flex flex-col items-center drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]">
-              <span className="text-3xl filter drop-shadow">👇</span>
-              <span className="text-[10px] font-bold text-white bg-[#1a73e8] px-2 py-0.5 rounded-full shadow-md mt-0.5 tracking-wider">
-                タップ！
-              </span>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]">
-              <span className="text-[10px] font-bold text-white bg-[#1a73e8] px-2 py-0.5 rounded-full shadow-md mb-0.5 tracking-wider">
-                タップ！
-              </span>
-              <span className="text-3xl filter drop-shadow">👆</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 4. 説明ポップオーバー（カード） */}
-      <div className="absolute inset-x-0 mx-auto max-w-md px-4 pointer-events-none flex justify-center"
+      {/* 3. ガイドポップオーバー（低認知負荷・脱AIスロップ設計） */}
+      <div
+        className="absolute inset-x-0 mx-auto max-w-sm px-4 pointer-events-none flex justify-center"
         style={{
-          ...(isTargetInUpperHalf
-            ? { bottom: '84px' }
-            : { top: '80px' }),
+          ...(isTargetInLowerHalf
+            ? { top: '32px' }
+            : { bottom: '40px' }),
         }}
       >
         <div
-          className={`pointer-events-auto w-full rounded-2xl p-4 sm:p-5 shadow-2xl border backdrop-blur-xl transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 ${
+          className={`pointer-events-auto w-full rounded-2xl p-5 border shadow-xl transition-all duration-200 ${
             isDarkMode
-              ? 'bg-neutral-900/95 border-neutral-700 text-neutral-100 shadow-black/80'
-              : 'bg-white/95 border-neutral-200 text-neutral-900 shadow-xl'
+              ? 'bg-neutral-900 border-neutral-800 text-neutral-100'
+              : 'bg-white border-neutral-200 text-neutral-900'
           }`}
         >
-          {/* 上部: ステップ進行インジケーター ＆ スキップボタン */}
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-200/40 dark:border-neutral-800">
+          {/* 上部: ステップ進行 & スキップボタン */}
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-neutral-200 dark:border-neutral-800">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[#4285f4] animate-ping" />
-              <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-[#4285f4]">
-                TUTORIAL {currentStep} / {TUTORIAL_STEPS.length}
+              <span className="w-1.5 h-1.5 rounded-full bg-[#1a73e8]" />
+              <span className="text-[11px] font-mono font-medium tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
+                チュートリアル {currentStep} / {TUTORIAL_STEPS.length}
               </span>
             </div>
             <button
               onClick={onSkip}
-              className={`text-[11px] font-medium px-2 py-0.5 rounded-full flex items-center gap-1 transition cursor-pointer ${
+              className={`text-xs font-medium px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 ${
                 isDarkMode
                   ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800'
                   : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100'
               }`}
-              title="チュートリアルをスキップ"
+              title="チュートリアルを終了"
             >
               スキップ
-              <X className="w-3 h-3" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* タイトルと説明文 */}
+          {/* タイトルと説明文（端正なタイポグラフィ・絵文字ゼロ） */}
           <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[#fbbc04] shrink-0" />
-              <h3 className="text-sm sm:text-base font-bold tracking-tight">
-                {stepConfig.title}
-              </h3>
-            </div>
-            <p className={`text-xs sm:text-sm leading-relaxed ${
+            <h3 className="text-sm sm:text-base font-semibold tracking-tight">
+              {stepConfig.title}
+            </h3>
+            <p className={`text-xs leading-relaxed ${
               isDarkMode ? 'text-neutral-300' : 'text-neutral-600'
             }`}>
               {stepConfig.description}
             </p>
           </div>
 
-          {/* 促しガイダンス ＆ アクション補助ボタン */}
-          <div className="mt-3 pt-3 border-t border-neutral-200/40 dark:border-neutral-800 flex items-center justify-between">
-            <span className="text-[11px] font-medium text-[#1a73e8] dark:text-[#8ab4f8] flex items-center gap-1">
-              <span>👉</span>
-              <span className="font-semibold">{stepConfig.actionPrompt}</span>
+          {/* 下部アクション */}
+          <div className="mt-4 pt-3 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
+            <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+              {stepConfig.actionPrompt}
             </span>
 
-            {/* 最終ステップまたは手動フォールバック用「次へ」ボタン */}
-            {stepConfig.id === 5 ? (
-              <button
-                onClick={handleFinalStepComplete}
-                className="px-4 py-1.5 rounded-full text-xs font-semibold text-white bg-gradient-to-r from-[#4285f4] to-[#34a853] hover:opacity-95 shadow-md flex items-center gap-1 cursor-pointer"
-              >
-                <span>冒険をはじめる！</span>
-                <Check className="w-3.5 h-3.5" />
-              </button>
-            ) : (
+            {/* 最終ステップ（Step 3）: 完了ボタン */}
+            {stepConfig.id === 3 ? (
               <button
                 onClick={() => onNextStep(stepConfig.id)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center gap-0.5 transition cursor-pointer ${
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#1a73e8] hover:bg-[#1557b0] transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>完了</span>
+                <Check className="w-3.5 h-3.5" />
+              </button>
+            ) : stepConfig.id === 2 ? (
+              /* Step 2: 次へ進むボタン */
+              <button
+                onClick={() => onNextStep(stepConfig.id)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#1a73e8] hover:bg-[#1557b0] transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>次へ</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              /* Step 1: 実タップ誘導（手動進行補助ボタン付き） */
+              <button
+                onClick={() => onNextStep(stepConfig.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-1 ${
                   isDarkMode
-                    ? 'text-neutral-400 hover:text-white bg-neutral-800/80 hover:bg-neutral-800'
-                    : 'text-neutral-600 hover:text-neutral-900 bg-neutral-100 hover:bg-neutral-200'
+                    ? 'text-neutral-300 bg-neutral-800 hover:bg-neutral-700'
+                    : 'text-neutral-600 bg-neutral-100 hover:bg-neutral-200'
                 }`}
-                title="次のステップへ"
               >
                 <span>次へ</span>
                 <ChevronRight className="w-3 h-3" />
