@@ -14,6 +14,7 @@ import type {
   FriendItem,
   FriendProgressData,
   PersonalityQuizProgressData,
+  TutorialState,
 } from '../types';
 import { ARCHETYPE_DEFAULTS } from '../data/personalityQuestions';
 
@@ -1137,4 +1138,37 @@ export async function getPublicProfile(discordUserId: string): Promise<PartnerPr
     return null;
   }
 }
+
+// ======================================================================
+// 初回チュートリアル進捗 API (moffy_tutorial_state)
+// ======================================================================
+
+export const TUTORIAL_GAME_ID = 'moffy_tutorial_state';
+
+/**
+ * チュートリアルの進行・完了ステータスを取得します。
+ * クラウドDBとローカルストレージの両方からフォールバック取得します。
+ */
+export async function getTutorialStatus(discordUserId: string): Promise<TutorialState | null> {
+  if (!discordUserId) return null;
+  return getGameProgress<TutorialState>(TUTORIAL_GAME_ID, discordUserId);
+}
+
+/**
+ * チュートリアルの完了状態をデータベースおよびローカルストレージに永続化します。
+ */
+export async function saveTutorialCompleted(
+  discordUserId: string,
+  completed: boolean = true,
+  lastStep?: number
+): Promise<boolean> {
+  if (!discordUserId) return false;
+  const payload: TutorialState = {
+    tutorialCompleted: completed,
+    completedAt: completed ? new Date().toISOString() : undefined,
+    lastStep,
+  };
+  return saveGameProgress(TUTORIAL_GAME_ID, discordUserId, payload);
+}
+
 

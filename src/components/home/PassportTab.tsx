@@ -146,6 +146,8 @@ export const PassportTab: React.FC<PassportTabProps> = ({
 
           {/* 水晶球体本体 (スワイプ・ドラッグ・タップでスタイル切替) */}
           <div
+            data-tutorial-id="tutorial-crystal-orb"
+            onClick={canToggle ? toggleMode : undefined}
             onTouchStart={canToggle ? handleTouchStart : undefined}
             onTouchEnd={canToggle ? handleTouchEnd : undefined}
             onMouseDown={canToggle ? handleMouseDown : undefined}

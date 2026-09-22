@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, RotateCcw, LogOut, Download, Plus, Trash2, Check, Save, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, RotateCcw, LogOut, Download, Plus, Trash2, Check, Save, AlertTriangle, HelpCircle } from 'lucide-react';
 import type { AuthUser } from '../../utils/oauthClient';
 import type { UserMoffySession, MbtiType, SnsLinkItem, SnsPlatform } from '../../types';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
@@ -16,6 +16,7 @@ interface ProfileTabProps {
   onBackToQuiz: () => void;
   isDarkMode: boolean;
   onUpdateSession?: (updatedSession: UserMoffySession) => void;
+  onRestartTutorial?: () => void;
 }
 
 const GRADE_OPTIONS = [
@@ -38,6 +39,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   onBackToQuiz,
   isDarkMode,
   onUpdateSession,
+  onRestartTutorial,
 }) => {
   const discordId = user?.discord_user_id || session?.discordUserId || 'Ambassador';
   const rawMbti = session?.mbti || user?.mbti || 'INTJ';
@@ -333,7 +335,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       </div>
 
       {/* 🌟 1. 公式パートナーカード（800x1000 PNG画像） */}
-      <div className="flex flex-col items-center">
+      <div data-tutorial-id="tutorial-complete-card" className="flex flex-col items-center">
         {isGeneratingCard ? (
           <div className={`w-full rounded-2xl border p-8 flex flex-col items-center justify-center gap-3 transition-colors ${
             isDarkMode ? 'border-neutral-800 bg-neutral-900' : 'border-neutral-200 bg-white shadow-sm'
@@ -702,6 +704,23 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
 
       {/* 4. アカウント管理アクション */}
       <div className="space-y-2.5 pt-1">
+        {onRestartTutorial && (
+          <button
+            onClick={onRestartTutorial}
+            className={`w-full min-h-[44px] px-4 py-2.5 rounded-xl border text-xs font-medium flex items-center justify-between transition cursor-pointer ${
+              isDarkMode
+                ? 'border-neutral-800 bg-neutral-900 hover:bg-neutral-800 text-neutral-200'
+                : 'border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-800 shadow-sm'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <HelpCircle className={`w-4 h-4 text-[#4285f4]`} />
+              <span>操作チュートリアルをもう一度見る</span>
+            </span>
+            <span className="text-[11px] font-mono text-[#4285f4] opacity-80">GUIDE</span>
+          </button>
+        )}
+
         <button
           onClick={onBackToQuiz}
           className={`w-full min-h-[44px] px-4 py-2.5 rounded-xl border text-xs font-medium flex items-center justify-between transition cursor-pointer ${

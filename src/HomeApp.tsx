@@ -10,8 +10,10 @@ import { ProfileTab } from './components/home/ProfileTab';
 import { FriendsTab } from './components/home/FriendsTab';
 import { FloatingBottomNav } from './components/home/FloatingBottomNav';
 import type { MainTab } from './components/home/FloatingBottomNav';
-import { getFriendList } from './services/api';
+import { getFriendList, getTutorialStatus, saveTutorialCompleted } from './services/api';
 import type { FriendItem } from './types';
+import { TUTORIAL_STEPS } from './types';
+import { TutorialOverlay } from './components/home/TutorialOverlay';
 
 const USER_STORAGE_PREFIX = 'moffy_user_session_';
 const THEME_STORAGE_KEY = 'moffy_theme_mode';
@@ -52,6 +54,10 @@ export const HomeApp: React.FC = () => {
     return 'home';
   });
   const [friends, setFriends] = useState<FriendItem[]>([]);
+
+  // 🌟 初回起動インタラクティブ・チュートリアル管理ステート
+  const [isTutorialActive, setIsTutorialActive] = useState<boolean>(false);
+  const [currentTutorialStep, setCurrentTutorialStep] = useState<number>(1);
 
   // テーマモード: localStorageに保存されている値、またはデフォルトでナイトモード(true)
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -135,6 +141,47 @@ export const HomeApp: React.FC = () => {
     };
   }, [discordUserId]);
 
+  // 🌟 初回起動フラグ（チュートリアル完了状態）の判定と同期
+  useEffect(() => {
+    if (!discordUserId) return;
+    let isMounted = true;
+
+    // 1. ローカルキャッシュのチェック（すでに完了済みの場合は通信を待たずに終了）
+    try {
+      const localKey = `moffy_game_progress_moffy_tutorial_state_${discordUserId}`;
+      const cached = localStorage.getItem(localKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.tutorialCompleted) {
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. クラウドDBから初回起動フラグを取得（非同期コールバック内でsetState）
+    getTutorialStatus(discordUserId)
+      .then((status) => {
+        if (!isMounted) return;
+        if (!status || !status.tutorialCompleted) {
+          // 初回起動！チュートリアルを開始
+          setIsTutorialActive(true);
+          setCurrentTutorialStep(1);
+          setActiveTab('home');
+        } else {
+          setIsTutorialActive(false);
+        }
+      })
+      .catch((err) => {
+        console.warn('[HomeApp] Failed to check tutorial status:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [discordUserId]);
+
   const [preferredStyle, setPreferredStyle] = useState<'normal' | 'equipped'>(() => {
     try {
       const saved = localStorage.getItem('moffy_preferred_style');
@@ -148,6 +195,56 @@ export const HomeApp: React.FC = () => {
   const handleStyleChange = useCallback((style: 'normal' | 'equipped') => {
     setPreferredStyle(style);
     setSession((prev) => (prev ? { ...prev, preferredStyle: style } : null));
+  }, []);
+
+  // チュートリアル: 次ステップへの進行（fromStepガード付きで二重進行を完全に防止）
+  const handleNextTutorialStep = useCallback((fromStep: number) => {
+    setCurrentTutorialStep((prev) => {
+      // 既に進んでいる場合は二重進行を完全にブロック
+      if (prev !== fromStep) return prev;
+
+      const next = prev + 1;
+      if (next > TUTORIAL_STEPS.length) {
+        // チュートリアル完了！DBにフラグを永続化
+        setIsTutorialActive(false);
+        if (discordUserId) {
+          saveTutorialCompleted(discordUserId, true).catch((err) => {
+            console.warn('[HomeApp] Failed to save tutorial completed state:', err);
+          });
+        }
+        return 1;
+      }
+
+      // 次ステップで特定のタブが要求されている場合は自動で切り替え
+      const nextConfig = TUTORIAL_STEPS[next - 1];
+      if (nextConfig && nextConfig.tabRequirement) {
+        setActiveTab(nextConfig.tabRequirement);
+      }
+
+      return next;
+    });
+  }, [discordUserId]);
+
+  // チュートリアル: スキップ
+  const handleSkipTutorial = useCallback(() => {
+    setIsTutorialActive(false);
+    if (discordUserId) {
+      saveTutorialCompleted(discordUserId, true).catch((err) => {
+        console.warn('[HomeApp] Failed to save tutorial skip state:', err);
+      });
+    }
+  }, [discordUserId]);
+
+  // チュートリアル: 再開（ProfileTabから呼び出し可能）
+  const handleRestartTutorial = useCallback(() => {
+    setActiveTab('home');
+    setCurrentTutorialStep(1);
+    setIsTutorialActive(true);
+  }, []);
+
+  // タブ切り替え（TutorialOverlayのクリック検知と競合しないよう純粋なタブ更新に一元化）
+  const handleTabChange = useCallback((tab: MainTab) => {
+    setActiveTab(tab);
   }, []);
 
   const handleUpdateSession = useCallback((updatedSession: UserMoffySession) => {
@@ -288,6 +385,7 @@ export const HomeApp: React.FC = () => {
             onBackToQuiz={handleBackToQuiz}
             isDarkMode={isDarkMode}
             onUpdateSession={handleUpdateSession}
+            onRestartTutorial={handleRestartTutorial}
           />
         )}
         {activeTab === 'friends' && (
@@ -305,10 +403,20 @@ export const HomeApp: React.FC = () => {
       {/* 画面下部カプセル型セレクトバー（ホーム & プロフィール） */}
       <FloatingBottomNav
         activeTab={activeTab}
-        onChangeTab={setActiveTab}
+        onChangeTab={handleTabChange}
         avatarUrl={avatarUrl}
         isDarkMode={isDarkMode}
       />
+
+      {/* 🌟 初回起動インタラクティブ・チュートリアルオーバーレイ */}
+      {isTutorialActive && (
+        <TutorialOverlay
+          currentStep={currentTutorialStep}
+          onNextStep={handleNextTutorialStep}
+          onSkip={handleSkipTutorial}
+          isDarkMode={isDarkMode}
+        />
+      )}
     </div>
   );
 };

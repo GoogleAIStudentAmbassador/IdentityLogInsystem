@@ -363,4 +363,68 @@ export interface DexStats {
   badges: DexBadge[];
 }
 
+export interface TutorialState {
+  tutorialCompleted: boolean;
+  completedAt?: string;
+  lastStep?: number;
+}
+
+export interface TutorialStepConfig {
+  id: number;
+  selector: string;
+  tabRequirement?: 'home' | 'dex' | 'exchange' | 'profile' | 'friends';
+  title: string;
+  description: string;
+  pointerDirection: 'up' | 'down' | 'left' | 'right';
+  actionPrompt: string;
+}
+
+export const TUTORIAL_STEPS: TutorialStepConfig[] = [
+  {
+    id: 1,
+    selector: '[data-tutorial-id="tutorial-crystal-orb"]',
+    tabRequirement: 'home',
+    title: '水晶玉でスタイル切替',
+    description: 'あなたの相棒、パートナーモッフィーです！水晶玉をタップまたはスワイプして、ノーマル姿とアクセサリー装備姿を切り替えてみましょう。',
+    pointerDirection: 'down',
+    actionPrompt: '水晶玉をタップして切り替えてみよう！',
+  },
+  {
+    id: 2,
+    selector: '[data-tutorial-id="tutorial-nav-exchange"]',
+    title: 'フレンド交換メニュー',
+    description: 'イベント会場で他のアンバサダーと名刺やQRコードを交換するメニューです。下のアンバサダーマークをタップして開いてみましょう！',
+    pointerDirection: 'down',
+    actionPrompt: '下部のアンバサダーマークをタップ！',
+  },
+  {
+    id: 3,
+    selector: '[data-tutorial-id="tutorial-copy-discord-id"]',
+    tabRequirement: 'exchange',
+    title: 'ワンタップでIDコピー',
+    description: 'あなた専用のモッフィー付きQRコードとDiscord IDです。『Discord ユーザー名』をタップしてクリップボードにコピーしてみましょう！',
+    pointerDirection: 'up',
+    actionPrompt: 'ユーザー名をタップしてコピー！',
+  },
+  {
+    id: 4,
+    selector: '[data-tutorial-id="tutorial-nav-profile"]',
+    title: 'プロフィールとカード',
+    description: 'あなたの公式パートナーカードの確認や、詳細プロフィールの編集ができます。下のプロフィールアイコンをタップして開いてみましょう！',
+    pointerDirection: 'down',
+    actionPrompt: '下部のプロフィールアイコンをタップ！',
+  },
+  {
+    id: 5,
+    selector: '[data-tutorial-id="tutorial-complete-card"]',
+    tabRequirement: 'profile',
+    title: 'パートナーカード完成！',
+    description: '公式パートナーカードは画像として保存・共有が可能です。基本操作のガイドは以上です。アンバサダーとしての冒険を始めましょう！',
+    pointerDirection: 'up',
+    actionPrompt: '「冒険をはじめる！」をタップして完了',
+  },
+];
+
+
+
 

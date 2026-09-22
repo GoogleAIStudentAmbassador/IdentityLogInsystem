@@ -64,6 +64,7 @@ export const FloatingBottomNav: React.FC<FloatingBottomNavProps> = ({
 
         {/* 3. フレンド交換（真ん中・Google AI Ambassadorシンボル・アイコンのみ） */}
         <button
+          data-tutorial-id="tutorial-nav-exchange"
           onClick={() => onChangeTab('exchange')}
           className={`relative w-11 h-11 sm:w-12 sm:h-12 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
             activeTab === 'exchange'
@@ -91,6 +92,7 @@ export const FloatingBottomNav: React.FC<FloatingBottomNavProps> = ({
 
         {/* 4. プロフィール（アイコンのみ） */}
         <button
+          data-tutorial-id="tutorial-nav-profile"
           onClick={() => onChangeTab('profile')}
           className={`relative w-11 h-11 sm:w-12 sm:h-12 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
             activeTab === 'profile'

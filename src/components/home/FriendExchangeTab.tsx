@@ -197,6 +197,7 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
                 <span className="text-[10px] text-neutral-400">タップでコピー</span>
               </div>
               <button
+                data-tutorial-id="tutorial-copy-discord-id"
                 onClick={handleCopyDiscordId}
                 className={`w-full px-4 py-3 rounded-xl border flex items-center justify-between transition-all group cursor-pointer ${
                   isDarkMode
