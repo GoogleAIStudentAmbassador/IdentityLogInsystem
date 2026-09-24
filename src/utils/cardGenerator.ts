@@ -7,6 +7,7 @@ export interface CardUserInfo {
   firstName?: string | null;
   nickname?: string | null;
   traitScores?: Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number> | null;
+  isAmbassador?: boolean;
 }
 
 /**
@@ -81,7 +82,10 @@ async function renderProfileCardInternal(
   ctx.fillStyle = '#94a3b8';
   ctx.font = '600 12px monospace';
   ctx.letterSpacing = '2px';
-  ctx.fillText('GOOGLE AI STUDENT AMBASSADOR // OFFICIAL PARTNER', 400, 72);
+  const headerSubtitle = userInfo.isAmbassador === false
+    ? 'GOOGLE AI COMMUNITY // PARTNER CARD'
+    : 'GOOGLE AI STUDENT AMBASSADOR // OFFICIAL PARTNER';
+  ctx.fillText(headerSubtitle, 400, 72);
 
   ctx.fillStyle = archetype.accentColor;
   ctx.font = 'bold 13px monospace';

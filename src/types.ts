@@ -92,6 +92,7 @@ export interface RegistrationResult {
   is_discord_verified?: boolean;
   discord_verified_at?: number | null;
   discord_2fa_expires_at?: number | null;
+  is_ambassador?: boolean;
 }
 
 export interface AuthConfigResponse {
@@ -128,6 +129,7 @@ export interface GoogleLoginResponse {
     google_id?: string | null;
     google_email?: string | null;
     auth_provider?: string;
+    is_ambassador?: boolean;
   } | null;
 }
 
@@ -219,6 +221,7 @@ export interface UserMoffySession {
   snsLinks?: SnsLinkItem[];
   birthday?: string;
   showBirthday?: boolean;
+  isAmbassador?: boolean;
   updatedAt: string;
 }
 
@@ -234,6 +237,7 @@ export interface FriendItem {
   grade?: string | null;
   birthday?: string | null;
   showBirthday?: boolean;
+  isAmbassador?: boolean;
   snsLinks?: SnsLinkItem[];
   addedAt: string;
 }
@@ -335,6 +339,7 @@ export interface QrPassportData {
   photoUrl?: string;
   birthday?: string;
   showBirthday?: boolean;
+  isAmbassador?: boolean;
   snsLinks?: SnsLinkItem[];
   timestamp: number;
 }

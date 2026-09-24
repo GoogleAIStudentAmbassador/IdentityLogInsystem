@@ -66,6 +66,7 @@ export const ShareApp: React.FC = () => {
   const initialPhoto = queryParams.get('photo') || queryParams.get('photo_url') || '';
   const initialBirthday = queryParams.get('bday') || '';
   const initialShowBirthday = queryParams.get('showBday') === '1';
+  const isAmbassador = queryParams.get('ambassador') === '1';
 
   // プロフィールステート
   const [mbti, setMbti] = useState<MbtiType>(initialMbti);
@@ -207,6 +208,7 @@ export const ShareApp: React.FC = () => {
             grade: finalGrade || null,
             birthday: finalBirthday || null,
             showBirthday: finalShowBirthday,
+            isAmbassador,
             snsLinks: finalSns,
             addedAt: new Date().toISOString(),
           };
@@ -238,7 +240,7 @@ export const ShareApp: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [targetDiscordId, currentUserId, currentUserMbti, initialNickname, initialName, initialUniv, initialGrade, initialPhoto, initialMbti, initialBirthday, initialShowBirthday, snsLinks, initialLastName, initialFirstName]);
+  }, [targetDiscordId, currentUserId, currentUserMbti, initialNickname, initialName, initialUniv, initialGrade, initialPhoto, initialMbti, initialBirthday, initialShowBirthday, snsLinks, initialLastName, initialFirstName, isAmbassador]);
 
   const archetype = MBTI_ARCHETYPES[mbti] || MBTI_ARCHETYPES.INTJ;
   const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
@@ -373,6 +375,14 @@ export const ShareApp: React.FC = () => {
                 <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
                   {displayName}
                 </h1>
+                {isAmbassador && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-[#1a73e8]/10 text-[#1a73e8] dark:bg-[#8ab4f8]/15 dark:text-[#8ab4f8] border border-[#1a73e8]/20 dark:border-[#8ab4f8]/30">
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0" aria-hidden="true">
+                      <path fillRule="evenodd" d="M8 0c4.418 0 8 3.582 8 8s-3.582 8-8 8-8-3.582-8-8 3.582-8 8-8zm3.22 5.22a.75.75 0 00-1.06-1.06L6.5 7.82 5.34 6.66a.75.75 0 10-1.06 1.06l1.75 1.75a.75.75 0 001.06 0l4.13-4.25z" clipRule="evenodd" />
+                    </svg>
+                    <span>Google AI 学生アンバサダー</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-center gap-1.5 pt-1">
                   <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300">
                     {archetype.title}
@@ -443,6 +453,14 @@ export const ShareApp: React.FC = () => {
                 <h2 className="text-xl sm:text-2xl font-bold tracking-tight mt-3 text-center">
                   {displayName}
                 </h2>
+                {isAmbassador && (
+                  <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-[#1a73e8]/10 text-[#1a73e8] dark:bg-[#8ab4f8]/15 dark:text-[#8ab4f8] border border-[#1a73e8]/20 dark:border-[#8ab4f8]/30">
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0" aria-hidden="true">
+                      <path fillRule="evenodd" d="M8 0c4.418 0 8 3.582 8 8s-3.582 8-8 8-8-3.582-8-8 3.582-8 8-8zm3.22 5.22a.75.75 0 00-1.06-1.06L6.5 7.82 5.34 6.66a.75.75 0 10-1.06 1.06l1.75 1.75a.75.75 0 001.06 0l4.13-4.25z" clipRule="evenodd" />
+                    </svg>
+                    <span>Google AI 学生アンバサダー</span>
+                  </div>
+                )}
 
                 {/* 性格タイプのモッフィー名 */}
                 <div className="mt-2 text-center space-y-1">

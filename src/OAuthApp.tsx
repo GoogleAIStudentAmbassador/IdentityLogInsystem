@@ -21,7 +21,7 @@ import {
   getDiscordAvatarUrl,
 } from './services/discordApi';
 import { getDiscord2FaStatus, saveDiscord2FaVerification } from './services/discord2fa';
-import { AlertTriangle, ShieldCheck, Loader2, XCircle, ArrowLeft, ExternalLink, Clock } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, Loader2, XCircle, ArrowLeft, ArrowRight, ExternalLink, Clock } from 'lucide-react';
 
 interface OAuthParams {
   clientId: string;
@@ -157,6 +157,9 @@ export const OAuthApp: React.FC = () => {
       if (user.discord_verified_at) {
         fragmentParams.set('discord_verified_at', String(user.discord_verified_at));
       }
+      if (user.is_ambassador !== undefined) {
+        fragmentParams.set('is_ambassador', String(user.is_ambassador));
+      }
 
       returnUrl.hash = fragmentParams.toString();
 
@@ -222,6 +225,7 @@ export const OAuthApp: React.FC = () => {
             discord_user_id: pending2FaSession.userName,
             is_discord_verified: true,
             discord_verified_at: Date.now(),
+            is_ambassador: true,
             photo_url: avatar || pending2FaAuth.user.photo_url || null,
           };
           const token = pending2FaAuth.token;
@@ -289,6 +293,7 @@ export const OAuthApp: React.FC = () => {
         google_id: userData.google_id || null,
         is_discord_verified: twoFa.isVerified,
         discord_verified_at: twoFa.record?.verifiedAt || null,
+        is_ambassador: twoFa.isVerified,
       };
 
       const extractedMbti =
@@ -365,6 +370,7 @@ export const OAuthApp: React.FC = () => {
           discord_user_id: res.user_name,
           is_discord_verified: true,
           discord_verified_at: Date.now(),
+          is_ambassador: true,
           photo_url: avatar || pending2FaAuth.user.photo_url || null,
         };
         const token = pending2FaAuth.token;
@@ -389,6 +395,23 @@ export const OAuthApp: React.FC = () => {
     } finally {
       setIs2FaVerifying(false);
     }
+  };
+
+  /**
+   * 🌟 アンバサダー認証をスキップしてゲストとして進行
+   */
+  const handleSkipPending2FaAsGuest = () => {
+    if (!pending2FaAuth) return;
+    const guestUser: RegistrationResult = {
+      ...pending2FaAuth.user,
+      is_ambassador: false,
+      is_discord_verified: false,
+      discord_verified_at: null,
+    };
+    const token = pending2FaAuth.token;
+    setPending2FaAuth(null);
+    setPending2FaSession(null);
+    handleAuthSuccess(guestUser, token);
   };
 
   const handleCancelPending2Fa = async () => {
@@ -417,8 +440,9 @@ export const OAuthApp: React.FC = () => {
         if (!user.photo_url && data.discordAvatarUrl) {
           user.photo_url = data.discordAvatarUrl;
         }
-        user.is_discord_verified = true;
-        user.discord_verified_at = data.discordVerifiedAt || Date.now();
+        user.is_discord_verified = data.isDiscordVerified !== undefined ? data.isDiscordVerified : !!user.is_discord_verified;
+        user.discord_verified_at = data.discordVerifiedAt || null;
+        user.is_ambassador = data.isAmbassador !== undefined ? data.isAmbassador : !!user.is_ambassador;
         handleAuthSuccess(user, token);
       } else if (data.authMode === 'google_onboarding') {
         // Google 初回オンボーディング登録
@@ -453,8 +477,9 @@ export const OAuthApp: React.FC = () => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           google_id: null,
-          is_discord_verified: true,
-          discord_verified_at: data.discordVerifiedAt || Date.now(),
+          is_discord_verified: Boolean(data.isDiscordVerified),
+          discord_verified_at: data.discordVerifiedAt || null,
+          is_ambassador: Boolean(data.isAmbassador),
           mbti: extractMbtiFromUrl(res.user.photo_url || res.user.arranged_photo_url || res.user.default_photo_url),
         };
 
@@ -486,8 +511,9 @@ export const OAuthApp: React.FC = () => {
         if (!result.photo_url && data.discordAvatarUrl) {
           result.photo_url = data.discordAvatarUrl;
         }
-        result.is_discord_verified = true;
-        result.discord_verified_at = data.discordVerifiedAt || Date.now();
+        result.is_discord_verified = Boolean(data.isDiscordVerified);
+        result.discord_verified_at = data.discordVerifiedAt || null;
+        result.is_ambassador = Boolean(data.isAmbassador);
 
         handleAuthSuccess(result, null);
       }
@@ -658,6 +684,14 @@ export const OAuthApp: React.FC = () => {
 
                     <button
                       type="button"
+                      onClick={handleSkipPending2FaAsGuest}
+                      className="w-full h-10 rounded-full bg-white/10 hover:bg-white/15 text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <span>認証をスキップしてゲストとしてログイン</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={handleCancelPending2Fa}
                       className="w-full h-10 rounded-full border border-gray-700 hover:border-gray-500 text-gray-400 hover:text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
@@ -694,16 +728,7 @@ export const OAuthApp: React.FC = () => {
                       />
                     </div>
 
-                    {twoFaError && (
-                      <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex items-start gap-2.5 animate-fade-in">
-                        <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                        <div className="flex-1 leading-relaxed">
-                          <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
-                          <p className="text-red-300/90">{twoFaError}</p>
-                        </div>
-                      </div>
-                    )}
-
+                    {/* 本人確認へ進む ボタン */}
                     <button
                       type="button"
                       onClick={handleVerifyPending2Fa}
@@ -722,6 +747,38 @@ export const OAuthApp: React.FC = () => {
                         </>
                       )}
                     </button>
+
+                    {/* ゲスト進行リンク */}
+                    <div className="pt-0.5 text-center">
+                      <button
+                        type="button"
+                        onClick={handleSkipPending2FaAsGuest}
+                        className="text-[11px] text-gray-400 hover:text-gray-200 underline underline-offset-4 transition cursor-pointer"
+                      >
+                        アンバサダー認証をスキップして進む（ゲスト）
+                      </button>
+                    </div>
+
+                    {twoFaError && (
+                      <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex flex-col gap-2.5 animate-fade-in">
+                        <div className="flex items-start gap-2.5">
+                          <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                          <div className="flex-1 leading-relaxed">
+                            <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
+                            <p className="text-red-300/90">{twoFaError}</p>
+                          </div>
+                        </div>
+                        {/* 🌟 エラー時にゲストとして進行できる導線 */}
+                        <button
+                          type="button"
+                          onClick={handleSkipPending2FaAsGuest}
+                          className="w-full mt-1 py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 text-white font-medium text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <span>認証バッジを付与せずにゲストとしてログイン</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
 
                     <button
                       type="button"

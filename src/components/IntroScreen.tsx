@@ -54,6 +54,7 @@ export interface OnboardingData {
   tempToken?: string;
   isDiscordVerified?: boolean;
   discordVerifiedAt?: number | null;
+  isAmbassador?: boolean;
 }
 
 export interface GoogleOnboardingInfo {
@@ -145,6 +146,24 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     }
     return null;
   });
+  const [isGuestMode, setIsGuestMode] = useState<boolean>(false);
+
+  const initialNameParts = React.useMemo(() => splitGoogleName(googleOnboardingInfo?.name), [googleOnboardingInfo?.name]);
+  const [lastName, setLastName] = useState(initialNameParts.lastName);
+  const [firstName, setFirstName] = useState(initialNameParts.firstName);
+  const [nickname, setNickname] = useState(initialNameParts.nickname);
+  const [prevGoogleName, setPrevGoogleName] = useState(() => googleOnboardingInfo?.name || '');
+
+  // Google Onboarding からの名前同期（React推奨のAdjusting state during renderingパターン）
+  if (googleOnboardingInfo?.name && googleOnboardingInfo.name !== prevGoogleName) {
+    setPrevGoogleName(googleOnboardingInfo.name);
+    if (!lastName && !firstName && !nickname) {
+      const parts = splitGoogleName(googleOnboardingInfo.name);
+      setLastName(parts.lastName);
+      setFirstName(parts.firstName);
+      setNickname(parts.nickname);
+    }
+  }
 
   // 常設ボタン式 2FA セッションステート
   interface PendingInteractive2Fa {
@@ -313,11 +332,25 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     }
   };
 
+  const handleContinueAsGuest = () => {
+    const clean = discordId.trim().replace(/^@/, '');
+    if (!clean) {
+      setDiscordVerifyError('アカウント識別用のユーザー名を入力してください');
+      return;
+    }
+    setIsGuestMode(true);
+    setDiscordVerifyError(null);
+    setPending2FaSession(null);
+    setDiscordVerifiedData(null);
+    setDiscord2FaStatus({ isVerified: false });
+  };
+
   const handleResetDiscordVerification = () => {
     if (discordId) {
       resetDiscord2FaStatus(discordId);
       cancelDiscord2FaAuth(discordId).catch(() => {});
     }
+    setIsGuestMode(false);
     setPending2FaSession(null);
     setDiscordVerifiedData(null);
     setDiscord2FaStatus({ isVerified: false });
@@ -326,6 +359,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
   const handleDiscordIdChange = (newVal: string) => {
     setDiscordId(newVal);
+    setIsGuestMode(false);
     const clean = newVal.trim().replace(/^@/, '').toLowerCase();
     if (!clean) {
       setDiscordVerifiedData(null);
@@ -358,23 +392,6 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  const initialNameParts = React.useMemo(() => splitGoogleName(googleOnboardingInfo?.name), [googleOnboardingInfo?.name]);
-  const [lastName, setLastName] = useState(initialNameParts.lastName);
-  const [firstName, setFirstName] = useState(initialNameParts.firstName);
-  const [nickname, setNickname] = useState(initialNameParts.nickname);
-  const [prevGoogleName, setPrevGoogleName] = useState(() => googleOnboardingInfo?.name || '');
-
-  // Google Onboarding からの名前同期（React推奨のAdjusting state during renderingパターン）
-  if (googleOnboardingInfo?.name && googleOnboardingInfo.name !== prevGoogleName) {
-    setPrevGoogleName(googleOnboardingInfo.name);
-    if (!lastName && !firstName && !nickname) {
-      const parts = splitGoogleName(googleOnboardingInfo.name);
-      setLastName(parts.lastName);
-      setFirstName(parts.firstName);
-      setNickname(parts.nickname);
-    }
-  }
 
   const [grade, setGrade] = useState<GradeType>('B1');
   const [university, setUniversity] = useState('');
@@ -509,11 +526,13 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
   const isPasswordStrong = hasMinLength && hasUppercase && hasNumber;
 
   // --- 入力完了判定 ---
-  // 1. Discord ユーザー名完了（公式サーバー在籍の二段階認証・本人確認が完了していること）
-  const isIdCompleted = Boolean(
+  // 1. Discord ユーザー名完了（公式サーバー在籍の二段階認証・本人確認が完了、またはゲストモードとして続行）
+  const cleanEnteredId = discordId.trim().replace(/^@/, '');
+  const isAmbassadorVerified = Boolean(
     discordVerifiedData?.isAlive &&
-    discordId.trim().replace(/^@/, '').toLowerCase() === (discordVerifiedData.user_name || '').toLowerCase()
+    cleanEnteredId.toLowerCase() === (discordVerifiedData.user_name || '').toLowerCase()
   );
+  const isIdCompleted = isAmbassadorVerified || (isGuestMode && cleanEnteredId.length >= 2);
 
   // 2. パスワード完了（サインアップ時は強度3条件すべて必須、サインイン時は8文字以上、google_onboarding時は不要）
   const isPasswordCompleted =
@@ -770,8 +789,9 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
         grade,
         university: cleanUniversity,
         tempToken: googleOnboardingInfo?.tempToken,
-        isDiscordVerified: true,
-        discordVerifiedAt: discord2FaStatus.record?.verifiedAt || Date.now(),
+        isDiscordVerified: Boolean(isAmbassadorVerified && !isGuestMode),
+        discordVerifiedAt: (isAmbassadorVerified && !isGuestMode) ? (discord2FaStatus.record?.verifiedAt || Date.now()) : null,
+        isAmbassador: Boolean(isAmbassadorVerified && !isGuestMode),
       });
       return;
     }
@@ -841,8 +861,9 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
       authMode,
       grade,
       university: cleanUniversity,
-      isDiscordVerified: true,
-      discordVerifiedAt: discord2FaStatus.record?.verifiedAt || Date.now(),
+      isDiscordVerified: Boolean(isAmbassadorVerified && !isGuestMode),
+      discordVerifiedAt: (isAmbassadorVerified && !isGuestMode) ? (discord2FaStatus.record?.verifiedAt || Date.now()) : null,
+      isAmbassador: Boolean(isAmbassadorVerified && !isGuestMode),
     });
   };
 
@@ -854,14 +875,10 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
       <section className="min-h-[85dvh] sm:min-h-[90dvh] w-full max-w-sm px-6 flex flex-col items-center justify-center text-center relative py-12">
         {/* メインタイトルエリア（フェードイン表示） */}
         <div className="animate-fade-in mb-8">
-          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight leading-[1.25] mb-2 text-white">
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight leading-[1.25] text-white">
             Google AI<br />
             Student Ambassador
           </h1>
-
-          <p className="text-xs sm:text-sm font-medium tracking-wide text-gray-400">
-            EVENT CHECK-IN SYSTEM
-          </p>
         </div>
 
         {/* 中央の星（白く発光するGeminiスター） */}
@@ -1096,6 +1113,14 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
                     <button
                       type="button"
+                      onClick={handleContinueAsGuest}
+                      className="w-full text-center text-xs text-google-blue hover:text-white py-1 transition-colors cursor-pointer font-medium"
+                    >
+                      認証をスキップしてゲストとして進む
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={handleCancel2FaSession}
                       className="w-full text-center text-xs text-gray-400 hover:text-white py-1 transition-colors cursor-pointer"
                     >
@@ -1151,19 +1176,42 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                       )}
                     </button>
 
+                    {/* ゲスト進行リンク */}
+                    <div className="pt-0.5 text-center">
+                      <button
+                        type="button"
+                        onClick={handleContinueAsGuest}
+                        disabled={discordId.trim().replace(/^@/, '').length < 2}
+                        className="text-[11px] text-gray-400 hover:text-gray-200 underline underline-offset-4 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        アンバサダー認証をスキップして進む（ゲスト）
+                      </button>
+                    </div>
+
                     {/* 本人確認エラー表示 */}
                     {discordVerifyError && (
-                      <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex items-start gap-2.5 animate-fade-in">
-                        <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                        <div className="flex-1 leading-relaxed">
-                          <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
-                          <p className="text-red-300/90">{discordVerifyError}</p>
+                      <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex flex-col gap-2.5 animate-fade-in">
+                        <div className="flex items-start gap-2.5">
+                          <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                          <div className="flex-1 leading-relaxed">
+                            <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
+                            <p className="text-red-300/90">{discordVerifyError}</p>
+                          </div>
                         </div>
+                        {/* 🌟 アンバサダー以外でもゲストとして先に進める導線 */}
+                        <button
+                          type="button"
+                          onClick={handleContinueAsGuest}
+                          className="w-full mt-1 py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 text-white font-medium text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <span>認証バッジを付与せずにゲストとして進む</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     )}
                   </div>
                 )
-              ) : (
+              ) : isAmbassadorVerified ? (
                 /* 認証済みカード表示（Discordアイコン・表示名・在籍確認バッジ） */
                 <div className="p-4 rounded-2xl bg-gray-900 border border-emerald-500/40 shadow-sm flex items-center justify-between gap-3 animate-fade-in">
                   <div className="flex items-center gap-3 min-w-0">
@@ -1198,6 +1246,38 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                           {formatRemaining2FaTime(discord2FaStatus.remainingMs || TWO_FACTOR_EXPIRY_MS)}
                         </span>
                       </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetDiscordVerification}
+                    className="text-xs text-gray-400 hover:text-white px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors shrink-0 cursor-pointer"
+                  >
+                    変更
+                  </button>
+                </div>
+              ) : (
+                /* ゲスト進行時のカード表示（認証バッジなし） */
+                <div className="p-4 rounded-2xl bg-gray-900 border border-gray-700 shadow-sm flex items-center justify-between gap-3 animate-fade-in">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-12 h-12 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-300 font-bold text-lg shrink-0">
+                      {cleanEnteredId[0]?.toUpperCase() || 'G'}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-white text-sm truncate">
+                          {cleanEnteredId}
+                        </span>
+                        <span className="text-[10px] font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">
+                          ゲスト
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 font-mono truncate">
+                        @{cleanEnteredId}
+                      </p>
+                      <span className="text-[10px] text-gray-400 block mt-0.5">
+                        アンバサダー認証なしで登録・進行中
+                      </span>
                     </div>
                   </div>
                   <button

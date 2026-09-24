@@ -285,6 +285,7 @@ export const App: React.FC = () => {
           defaultPhotoUrl: defaultPhoto,
           grade: userResult.grade,
           university: userResult.university,
+          isAmbassador: userResult.is_ambassador !== undefined ? userResult.is_ambassador : authUser.is_ambassador !== undefined ? authUser.is_ambassador : localSession?.isAmbassador,
           updatedAt: new Date().toISOString(),
         });
 
@@ -431,6 +432,7 @@ export const App: React.FC = () => {
         defaultPhotoUrl: normalMoffyImageUrl,
         grade: regResult?.grade,
         university: regResult?.university,
+        isAmbassador: regResult?.is_ambassador !== undefined ? regResult.is_ambassador : authClient.getUser()?.is_ambassador,
         updatedAt: new Date().toISOString(),
       });
 
@@ -558,6 +560,7 @@ export const App: React.FC = () => {
         defaultPhotoUrl: createRes.image_url,
         grade: regResult?.grade,
         university: regResult?.university,
+        isAmbassador: regResult?.is_ambassador !== undefined ? regResult.is_ambassador : authClient.getUser()?.is_ambassador,
         updatedAt: new Date().toISOString(),
       });
 
@@ -602,6 +605,7 @@ export const App: React.FC = () => {
           defaultPhotoUrl: null,
           grade: regResult?.grade,
           university: regResult?.university,
+          isAmbassador: regResult?.is_ambassador !== undefined ? regResult.is_ambassador : authClient.getUser()?.is_ambassador,
           updatedAt: new Date().toISOString(),
         });
         setIsLoadingEnding(true);

@@ -45,6 +45,7 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
   const university = user?.university || session?.university || '未設定';
   const grade = user?.grade || session?.grade || 'B1';
   const archetype = MBTI_ARCHETYPES[mbti] || MBTI_ARCHETYPES.INTJ;
+  const isAmbassador = Boolean(session?.isAmbassador ?? user?.is_ambassador ?? user?.isAmbassador);
 
   const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
   const defaultMoffyImg = archetype.officialImageUrl
@@ -102,6 +103,7 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
       photoUrl: moffyPhotoUrl || undefined,
       birthday: birthday || undefined,
       showBirthday,
+      isAmbassador,
       snsLinks,
     });
 
@@ -121,7 +123,7 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [hasMoffy, discordUserId, fullName, lastName, firstName, nickname, mbti, university, grade, moffyPhotoUrl, birthday, showBirthday, snsLinks]);
+  }, [hasMoffy, discordUserId, fullName, lastName, firstName, nickname, mbti, university, grade, moffyPhotoUrl, birthday, showBirthday, isAmbassador, snsLinks]);
 
   // Discord ID コピー処理
   const handleCopyDiscordId = useCallback(async () => {
@@ -205,6 +207,14 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
                 }`}>
                   {nickname && nickname.trim() ? nickname.trim() : (fullName || discordUserId)}
                 </h3>
+                {isAmbassador && (
+                  <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-[#1a73e8]/10 text-[#1a73e8] dark:bg-[#8ab4f8]/15 dark:text-[#8ab4f8] border border-[#1a73e8]/20 dark:border-[#8ab4f8]/30 animate-fade-in shadow-xs">
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0" aria-hidden="true">
+                      <path fillRule="evenodd" d="M8 0c4.418 0 8 3.582 8 8s-3.582 8-8 8-8-3.582-8-8 3.582-8 8-8zm3.22 5.22a.75.75 0 00-1.06-1.06L6.5 7.82 5.34 6.66a.75.75 0 10-1.06 1.06l1.75 1.75a.75.75 0 001.06 0l4.13-4.25z" clipRule="evenodd" />
+                    </svg>
+                    <span>Google AI 学生アンバサダー</span>
+                  </div>
+                )}
               </div>
               <span className={`px-2 py-0.5 rounded text-[11px] font-mono shrink-0 border ${
                 isDarkMode ? 'border-neutral-700 bg-neutral-800 text-neutral-200' : 'border-neutral-200 bg-neutral-100 text-neutral-800'

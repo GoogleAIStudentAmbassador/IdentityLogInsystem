@@ -29,6 +29,8 @@ export interface AuthUser {
   google_id?: string | null;
   is_discord_verified?: boolean;
   discord_verified_at?: number | null;
+  is_ambassador?: boolean;
+  isAmbassador?: boolean;
 }
 
 export interface AuthSession {
@@ -225,6 +227,7 @@ export class MoffyAuthClient {
     const isDiscordVerified = params.get('is_discord_verified') === 'true';
     const rawVerifiedAt = params.get('discord_verified_at');
     const discordVerifiedAt = rawVerifiedAt ? parseInt(rawVerifiedAt, 10) : null;
+    const isAmbassador = params.get('is_ambassador') === 'true' || params.get('isAmbassador') === 'true';
 
     const user: AuthUser = {
       discord_user_id: discordUserId,
@@ -242,6 +245,8 @@ export class MoffyAuthClient {
       google_id: params.get('google_id') || null,
       is_discord_verified: isDiscordVerified,
       discord_verified_at: discordVerifiedAt,
+      is_ambassador: isAmbassador,
+      isAmbassador: isAmbassador,
     };
 
     const sessionExpiresAt = discordVerifiedAt
@@ -304,13 +309,18 @@ export class MoffyAuthClient {
       return false;
     }
 
-    // 🌟 二段階認証 (2FA) フラグおよび有効期限 (1週間) の物理的検証
-    // 「既存のユーザーはいったんFalseにしてください。Falseの時、必ずDiscordでの認証が必要になるようにしてください。1週間たつとフラグをFalseにし、次ログインしたとき、二段階認証するようにしよう」
-    const twoFaStatus = getDiscord2FaStatus(session.user.discord_user_id);
-    if (!twoFaStatus.isVerified) {
-      console.warn('[MoffyAuthClient] 2FA flag is False or expired (1 week passed). Re-authentication required.');
-      this.logout();
-      return false;
+    // 🌟 二段階認証 (2FA) 検証:
+    // アンバサダーフラグを持つユーザーのみ 2FA 有効期限 (1週間) を検証
+    // アンバサダー以外（一般ゲスト）は 2FA 不要で性格診断・アプリ利用を許可
+    const isAmbassadorUser = Boolean(session.user.is_ambassador || session.user.isAmbassador);
+    if (isAmbassadorUser) {
+      const twoFaStatus = getDiscord2FaStatus(session.user.discord_user_id);
+      if (!twoFaStatus.isVerified) {
+        console.warn('[MoffyAuthClient] 2FA expired or unverified for ambassador. Demoting to guest status.');
+        session.user.is_ambassador = false;
+        session.user.isAmbassador = false;
+        this.saveSession(session);
+      }
     }
 
     // 1. セッション expiresAt 判定

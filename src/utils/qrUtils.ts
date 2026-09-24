@@ -153,6 +153,7 @@ export function createPassportShareUrl(passport: Omit<QrPassportData, 'type' | '
   if (passport.photoUrl) url.searchParams.set('photo', passport.photoUrl);
   if (passport.birthday) url.searchParams.set('bday', passport.birthday);
   if (passport.showBirthday !== undefined) url.searchParams.set('showBday', passport.showBirthday ? '1' : '0');
+  if (passport.isAmbassador !== undefined) url.searchParams.set('ambassador', passport.isAmbassador ? '1' : '0');
 
   // SNSリンクを安全にコンパクトエンコード
   if (passport.snsLinks && passport.snsLinks.length > 0) {
@@ -186,6 +187,7 @@ export interface ParsedPassport {
   photoUrl?: string | null;
   birthday?: string | null;
   showBirthday?: boolean;
+  isAmbassador?: boolean;
   snsLinks?: { platform: string; value: string }[];
 }
 
@@ -208,6 +210,7 @@ export function parsePassportQrPayload(text: string): ParsedPassport | null {
         university: data.university || '未設定',
         grade: data.grade || 'B1',
         photoUrl: data.photoUrl || null,
+        isAmbassador: data.isAmbassador !== undefined ? Boolean(data.isAmbassador) : undefined,
       };
     }
   } catch {
@@ -249,6 +252,7 @@ export function parsePassportQrPayload(text: string): ParsedPassport | null {
           photoUrl: url.searchParams.get('photo') || url.searchParams.get('photo_url') || null,
           birthday: url.searchParams.get('bday') || null,
           showBirthday: url.searchParams.get('showBday') === '1',
+          isAmbassador: url.searchParams.get('ambassador') === '1',
           snsLinks: parsedSns,
         };
       }
