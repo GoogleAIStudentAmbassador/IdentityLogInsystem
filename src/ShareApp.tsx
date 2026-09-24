@@ -270,11 +270,26 @@ export const ShareApp: React.FC = () => {
     ? nickname.trim()
     : name.trim() || [initialLastName, initialFirstName].filter(Boolean).join(' ') || `@${targetDiscordId}`;
 
-  // トークテーマの自動生成（バックグラウンド先行ロード）
+  // トークテーマの自動生成（バックグラウンド先行ロード ＆ ローカルキャッシュ）
   useEffect(() => {
     let isMounted = true;
 
     async function loadTalkTopic() {
+      // 🌟 同一ペア間のローカルキャッシュ確認（APIクォータ消費の極小化）
+      const cacheKey = `moffy_talk_topic_${currentUserId || 'guest'}_${targetDiscordId}`;
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached && cached.trim()) {
+          if (isMounted) {
+            setTalkTopic(cached.trim());
+            setIsLoadingTopic(false);
+          }
+          return;
+        }
+      } catch {
+        // ignore
+      }
+
       setIsLoadingTopic(true);
       try {
         const topic = await generateTalkTopicWithGemini({
@@ -288,11 +303,18 @@ export const ShareApp: React.FC = () => {
         if (isMounted) {
           setTalkTopic(topic);
           setIsLoadingTopic(false);
+          // キャッシュ保存
+          try {
+            localStorage.setItem(cacheKey, topic);
+          } catch {
+            // ignore
+          }
         }
       } catch (e) {
         console.warn('Failed to generate talk topic:', e);
         if (isMounted) {
-          setTalkTopic('お互いの大学で流行っていることや、普段の活動で関心のあるテーマについて聞いてみよう');
+          const fallback = 'お互いの大学で流行っていることや、普段の活動で関心のあるテーマについて聞いてみよう';
+          setTalkTopic(fallback);
           setIsLoadingTopic(false);
         }
       }
@@ -305,7 +327,7 @@ export const ShareApp: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [mbti, currentUserMbti, currentUser?.nickname, currentUser?.name, currentUser?.university, displayName, university]);
+  }, [mbti, currentUserMbti, currentUser?.nickname, currentUser?.name, currentUser?.university, displayName, university, currentUserId, targetDiscordId]);
 
   // トークテーマのタイピング風文字アニメーション
   useEffect(() => {

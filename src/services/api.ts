@@ -890,21 +890,51 @@ export async function generateTalkTopicWithGemini(
   const friendMbti = (params.friendMbti || 'INTJ').toUpperCase();
   const myMbti = params.myMbti ? params.myMbti.toUpperCase() : null;
 
-  // 決定論的フォールバック（Fail-Safe）
+  // 決定論的・バリエーション豊かで自然なフォールバック（Fail-Safe）
   const getFallbackTopic = (): string => {
+    const pick = (list: string[]): string => {
+      const seed = (params.friendName || '') + (params.myName || '') + friendMbti;
+      let hash = 0;
+      for (let i = 0; i < seed.length; i++) {
+        hash = (hash * 31 + seed.charCodeAt(i)) & 0xffffffff;
+      }
+      const idx = Math.abs(hash) % list.length;
+      return list[idx];
+    };
+
     if (/^(INTJ|INTP|ENTJ|ENTP)$/i.test(friendMbti)) {
-      return '最近注目している最新のAIツールや、これから作ってみたいプロジェクトについて聞いてみよう';
+      return pick([
+        '最近注目している最新のAIツールや、これから作ってみたいプロジェクトについて聞いてみよう',
+        '普段の開発や学習で使っている技術スタックや、自動化の工夫について話してみよう',
+        '今後AIを使って解決してみたい課題や、探究しているテーマについて聞いてみよう',
+      ]);
     }
     if (/^(INFJ|INFP|ENFJ|ENFP)$/i.test(friendMbti)) {
-      return '学生アンバサダーとしてやってみたい活動や、普段大切にしている価値観について話してみよう';
+      return pick([
+        '学生アンバサダーとしてやってみたい活動や、普段大切にしている価値観について話してみよう',
+        'コミュニティ活動やチームで人と関わる時に、意識していることについて聞いてみよう',
+        '周りの人を笑顔にするために、普段から心がけている工夫について話してみては？',
+      ]);
     }
     if (/^(ISTJ|ISFJ|ESTJ|ESFJ)$/i.test(friendMbti)) {
-      return '大学での研究や学業の両立の工夫、日々のスケジュールの組み立て方について聞いてみよう';
+      return pick([
+        '大学での研究や学業の両立の工夫、日々のスケジュールの組み立て方について聞いてみよう',
+        'イベントやプロジェクトを円滑に進めるための、丁寧な準備や段取りについて話してみよう',
+        '日頃のルーティンや、習慣化して役に立っていることについて聞いてみよう',
+      ]);
     }
     if (/^(ISTP|ISFP|ESTP|ESFP)$/i.test(friendMbti)) {
-      return '最近一番ハマっている趣味や、今回のイベントで楽しみにしている体験について聞いてみよう';
+      return pick([
+        '最近一番ハマっている趣味や、今回のイベントで楽しみにしている体験について聞いてみよう',
+        '実際に手を動かしてものづくりをした時の、一番楽しかったエピソードについて話してみよう',
+        'フットワーク軽く新しく挑戦してみたいことや、最近の面白い発見について聞いてみよう',
+      ]);
     }
-    return 'お互いの大学で流行っていることや、普段の活動で関心のあるテーマについて聞いてみよう';
+    return pick([
+      'お互いの大学で流行っていることや、普段の活動で関心のあるテーマについて聞いてみよう',
+      '学生アンバサダーの活動で、これから一緒に取り組んでみたいことについて話してみよう',
+      '普段どんな分野のAI活用や勉強に興味があるか、気軽にお互い共有してみよう',
+    ]);
   };
 
   const apiKey = getApiKey();
@@ -943,7 +973,7 @@ export async function generateTalkTopicWithGemini(
     formData.append('prompt', prompt);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 7000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // コールドスタート対応で10秒保護
 
     const res = await fetch(`${baseUrl}/api/v1/gem_text`, {
       method: 'POST',
