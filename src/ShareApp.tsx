@@ -18,7 +18,14 @@ import { MBTI_ARCHETYPES } from './data/personalityQuestions';
 import { resolveSnsUrl } from './utils/snsUtils';
 import { MoffyAuthClient } from './utils/oauthClient';
 import { isNewDexDiscovery } from './utils/dexUtils';
-import { getPublicProfile, getGameProgress, addFriend, getFriendList, extractMbtiFromUrl } from './services/api';
+import {
+  getPublicProfile,
+  getGameProgress,
+  addFriend,
+  getFriendList,
+  extractMbtiFromUrl,
+  generateTalkTopicWithGemini,
+} from './services/api';
 
 const THEME_STORAGE_KEY = 'moffy_theme_mode';
 
@@ -46,8 +53,12 @@ export const ShareApp: React.FC = () => {
     });
   };
 
-  // 表示ステップ: 'discover' (新しいアンバサダーを見つけたよ！！) -> 'profile' (相手の公開ページ)
-  const [step, setStep] = useState<'discover' | 'profile'>('discover');
+  // 表示ステップ: 'discover' (新しいアンバサダー発見) -> 'profile' (相手の公開ページ/フレンドリザルト) -> 'topic' (相性トークテーマ)
+  const [step, setStep] = useState<'discover' | 'profile' | 'topic'>('discover');
+  const [talkTopic, setTalkTopic] = useState<string>('');
+  const [isLoadingTopic, setIsLoadingTopic] = useState<boolean>(true);
+  const [typingProgress, setTypingProgress] = useState<number>(0);
+  const [isTyping, setIsTyping] = useState<boolean>(false);
 
   // URLパラメータからのパース
   const queryParams = useMemo(() => {
@@ -259,6 +270,79 @@ export const ShareApp: React.FC = () => {
     ? nickname.trim()
     : name.trim() || [initialLastName, initialFirstName].filter(Boolean).join(' ') || `@${targetDiscordId}`;
 
+  // トークテーマの自動生成（バックグラウンド先行ロード）
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadTalkTopic() {
+      setIsLoadingTopic(true);
+      try {
+        const topic = await generateTalkTopicWithGemini({
+          myMbti: currentUserMbti,
+          myName: currentUser?.nickname || currentUser?.name || null,
+          myUniversity: currentUser?.university || null,
+          friendMbti: mbti,
+          friendName: displayName,
+          friendUniversity: university,
+        });
+        if (isMounted) {
+          setTalkTopic(topic);
+          setIsLoadingTopic(false);
+        }
+      } catch (e) {
+        console.warn('Failed to generate talk topic:', e);
+        if (isMounted) {
+          setTalkTopic('お互いの大学で流行っていることや、普段の活動で関心のあるテーマについて聞いてみよう');
+          setIsLoadingTopic(false);
+        }
+      }
+    }
+
+    if (mbti) {
+      loadTalkTopic();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [mbti, currentUserMbti, currentUser?.nickname, currentUser?.name, currentUser?.university, displayName, university]);
+
+  // トークテーマのタイピング風文字アニメーション
+  useEffect(() => {
+    if (step !== 'topic' || !talkTopic) return;
+
+    let idx = 0;
+    const interval = setInterval(() => {
+      idx++;
+      setTypingProgress(idx);
+      if (idx >= talkTopic.length) {
+        clearInterval(interval);
+        setIsTyping(false);
+      }
+    }, 32);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [step, talkTopic]);
+
+  // トークテーマ画面への遷移ハンドラー（タイピング初期化）
+  const handleGoToTopic = () => {
+    setTypingProgress(0);
+    setIsTyping(true);
+    setStep('topic');
+  };
+
+  // タップでタイピング演出を即座にスキップ
+  const handleSkipTyping = () => {
+    if (isTyping && talkTopic) {
+      setTypingProgress(talkTopic.length);
+      setIsTyping(false);
+    }
+  };
+
+  const displayedTopic = isTyping ? talkTopic.slice(0, typingProgress) : talkTopic;
+
   return (
     <div
       className={`min-h-screen flex flex-col transition-colors duration-300 select-none ${
@@ -406,7 +490,7 @@ export const ShareApp: React.FC = () => {
               </button>
             </div>
           </div>
-        ) : (
+        ) : step === 'profile' ? (
           // ======================================================================
           // ステップ 2: 相手の公開プロフィール画面
           // ======================================================================
@@ -559,9 +643,18 @@ export const ShareApp: React.FC = () => {
 
             {/* ナビゲーションリンク */}
             <div className="w-full space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={handleGoToTopic}
+                className="w-full min-h-[50px] py-3.5 px-6 rounded-2xl font-bold text-sm text-white flex items-center justify-center gap-2 transition cursor-pointer shadow-lg hover:opacity-95 active:scale-[0.98] bg-gradient-to-r from-google-blue via-google-green to-google-yellow"
+              >
+                <span>次へ (トークテーマへ)</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
               <a
                 href="./home.html?tab=dex"
-                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition cursor-pointer border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition cursor-pointer border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
               >
                 <BookOpen className="w-4 h-4 text-google-blue" />
                 <span>モッフィー図鑑を確認する</span>
@@ -569,7 +662,7 @@ export const ShareApp: React.FC = () => {
 
               <a
                 href="./home.html"
-                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition cursor-pointer border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition cursor-pointer border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
               >
                 <Home className="w-4 h-4" />
                 <span>自分のアンバサダーポータルを開く</span>
@@ -584,6 +677,109 @@ export const ShareApp: React.FC = () => {
                   <span>自分も性格診断を受けてモッフィーを作る</span>
                 </a>
               )}
+            </div>
+          </div>
+        ) : (
+          // ======================================================================
+          // ステップ 3: 相性のいいトークテーマ画面
+          // ======================================================================
+          <div className="w-full flex flex-col items-center animate-fade-in space-y-6 py-4">
+            {/* 二人のアンバサダー ペア情報 */}
+            <div className="flex items-center justify-center gap-2 py-1 max-w-full flex-wrap">
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs ${
+                  isDarkMode
+                    ? 'border-neutral-800 bg-neutral-900/60 text-neutral-200'
+                    : 'border-neutral-200 bg-white text-neutral-800'
+                }`}
+              >
+                <span className="font-semibold truncate max-w-[120px]">
+                  {currentUser?.nickname || currentUser?.name || 'あなた'}
+                </span>
+                <span className="text-[10px] font-mono text-neutral-400">
+                  {currentUserMbti ? `(${currentUserMbti})` : '(未診断)'}
+                </span>
+              </div>
+              <span className="text-neutral-400 text-xs font-bold">×</span>
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs ${
+                  isDarkMode
+                    ? 'border-neutral-800 bg-neutral-900/60 text-neutral-200'
+                    : 'border-neutral-200 bg-white text-neutral-800'
+                }`}
+              >
+                <span className="font-semibold truncate max-w-[120px]">{displayName}</span>
+                <span className="text-[10px] font-mono text-neutral-400">({mbti})</span>
+              </div>
+            </div>
+
+            {/* トークテーマ表示カード */}
+            <div
+              onClick={handleSkipTyping}
+              title={isTyping ? 'タップで全表示' : undefined}
+              className={`w-full rounded-3xl p-6 sm:p-8 border shadow-xl transition-all relative overflow-hidden text-center cursor-pointer select-none ${
+                isDarkMode
+                  ? 'border-neutral-800 bg-neutral-900/90 text-neutral-100'
+                  : 'border-neutral-200 bg-white text-neutral-900'
+              }`}
+            >
+              {/* カード上部環境光 */}
+              <div
+                className="absolute top-0 inset-x-0 h-24 blur-3xl opacity-20 pointer-events-none"
+                style={{ backgroundColor: archetype.primaryColor }}
+              />
+
+              {/* 上部 Google カラーバー */}
+              <div className="flex items-center justify-center gap-1.5 mb-6">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#4285f4]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#ea4335]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#fbbc04]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#34a853]" />
+              </div>
+
+              {/* 「トークテーマ！」見出し（文字アニメーションで出現） */}
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight text-neutral-900 dark:text-neutral-100 animate-fade-in mb-4">
+                トークテーマ！
+              </h2>
+
+              {/* 改行して「〇〇」 */}
+              <div className="min-h-[84px] flex items-center justify-center px-2">
+                {isLoadingTopic ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-4">
+                    <div className="w-6 h-6 border-2 border-neutral-300 border-t-[#4285f4] rounded-full animate-spin" />
+                    <span className="text-xs text-neutral-400 font-medium">相性を分析中...</span>
+                  </div>
+                ) : (
+                  <p className="text-base sm:text-lg font-medium leading-relaxed tracking-normal text-neutral-800 dark:text-neutral-200 max-w-sm mx-auto">
+                    {displayedTopic}
+                    {isTyping && (
+                      <span className="inline-block w-0.5 h-5 ml-1 bg-[#4285f4] dark:bg-[#8ab4f8] animate-pulse align-middle" />
+                    )}
+                  </p>
+                )}
+              </div>
+
+              {/* スキップ案内（タイピング中のみ） */}
+              {isTyping && (
+                <div className="mt-3 text-[10px] text-neutral-400 dark:text-neutral-500">
+                  タップで全表示
+                </div>
+              )}
+            </div>
+
+            {/* その下に「次へ」ボタンを設置。押すことでモッフィー図鑑に戻れる */}
+            <div
+              className={`w-full pt-2 transition-all duration-500 ${
+                !isTyping ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'
+              }`}
+            >
+              <a
+                href="./home.html?tab=dex"
+                className="w-full min-h-[50px] py-3.5 px-6 rounded-2xl font-bold text-sm text-white flex items-center justify-center gap-2 transition cursor-pointer shadow-lg hover:opacity-95 active:scale-[0.98] bg-neutral-900 dark:bg-neutral-100 dark:text-neutral-950"
+              >
+                <span>次へ</span>
+                <ArrowRight className="w-4 h-4" />
+              </a>
             </div>
           </div>
         )}

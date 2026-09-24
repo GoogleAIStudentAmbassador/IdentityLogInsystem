@@ -866,6 +866,120 @@ export async function analyzeMoffyWishWithGemini(params: {
   }
 }
 
+export interface GenerateTalkTopicParams {
+  myMbti?: string | null;
+  myName?: string | null;
+  myUniversity?: string | null;
+  friendMbti?: string | null;
+  friendName?: string | null;
+  friendUniversity?: string | null;
+}
+
+/**
+ * 2人のアンバサダーの性格情報（MBTI、名前、所属等）から、
+ * バックエンドのGeminiテキストAPI（POST /api/v1/gem_text）を用いて
+ * 初対面でも盛り上がる相性のいいトークテーマを一言（30〜60文字程度）で推定・生成します。
+ * 
+ * フェイルセーフ（Fail-Safe）:
+ * APIキー未設定時、403/500エラー時、タイムアウト時、ネットワーク切断時は
+ * MBTIの特性に応じた決定論的フォールバックテーマを即座に返却します。
+ */
+export async function generateTalkTopicWithGemini(
+  params: GenerateTalkTopicParams
+): Promise<string> {
+  const friendMbti = (params.friendMbti || 'INTJ').toUpperCase();
+  const myMbti = params.myMbti ? params.myMbti.toUpperCase() : null;
+
+  // 決定論的フォールバック（Fail-Safe）
+  const getFallbackTopic = (): string => {
+    if (/^(INTJ|INTP|ENTJ|ENTP)$/i.test(friendMbti)) {
+      return '最近注目している最新のAIツールや、これから作ってみたいプロジェクトについて聞いてみよう';
+    }
+    if (/^(INFJ|INFP|ENFJ|ENFP)$/i.test(friendMbti)) {
+      return '学生アンバサダーとしてやってみたい活動や、普段大切にしている価値観について話してみよう';
+    }
+    if (/^(ISTJ|ISFJ|ESTJ|ESFJ)$/i.test(friendMbti)) {
+      return '大学での研究や学業の両立の工夫、日々のスケジュールの組み立て方について聞いてみよう';
+    }
+    if (/^(ISTP|ISFP|ESTP|ESFP)$/i.test(friendMbti)) {
+      return '最近一番ハマっている趣味や、今回のイベントで楽しみにしている体験について聞いてみよう';
+    }
+    return 'お互いの大学で流行っていることや、普段の活動で関心のあるテーマについて聞いてみよう';
+  };
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return getFallbackTopic();
+  }
+
+  const myInfo = [
+    myMbti ? `性格タイプ: ${myMbti}` : '',
+    params.myName ? `名前: ${params.myName}` : '',
+    params.myUniversity && params.myUniversity !== '未設定' ? `所属: ${params.myUniversity}` : '',
+  ].filter(Boolean).join('、') || '一般参加者';
+
+  const friendInfo = [
+    friendMbti ? `性格タイプ: ${friendMbti}` : '',
+    params.friendName ? `名前: ${params.friendName}` : '',
+    params.friendUniversity && params.friendUniversity !== '未設定' ? `所属: ${params.friendUniversity}` : '',
+  ].filter(Boolean).join('、');
+
+  const prompt = `あなたは「Google AI 学生アンバサダー」の公式交流ファシリテーターAIです。
+二人のアンバサダーがフレンド交換（名刺交換）を行いました。
+お互いの性格タイプや情報をもとに、二人が初対面で自然に打ち解けられる「相性のいいトークテーマ」を一言で提案してください。
+
+【参加者情報】
+- ユーザーA（自分）: ${myInfo}
+- ユーザーB（相手）: ${friendInfo}
+
+【ルール】
+1. トークテーマは「〜について聞いてみよう」「〜について話してみては？」のような、初対面でも会話が弾む具体的で前向きな一言（30文字〜60文字程度）にしてください。
+2. 絵文字や記号（★、✨、！の連続など）、前置き（「トークテーマは〜」など）、引用符（「」や""）は一切出力せず、トークテーマの本文テキストのみを1行で出力してください。
+3. 相手の性格タイプ（MBTI）の特性や強みを活かした、親しみやすい話題にしてください。`;
+
+  try {
+    const baseUrl = getApiBaseUrl();
+    const formData = new FormData();
+    formData.append('prompt', prompt);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 7000);
+
+    const res = await fetch(`${baseUrl}/api/v1/gem_text`, {
+      method: 'POST',
+      headers: {
+        'X-API-Key': apiKey,
+      },
+      body: formData,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      console.warn(`[generateTalkTopicWithGemini] API returned status ${res.status}, using fallback.`);
+      return getFallbackTopic();
+    }
+
+    const data = await res.json();
+    let text: string = data.text || '';
+    if (!text.trim()) {
+      return getFallbackTopic();
+    }
+
+    text = text.trim()
+      .replace(/^["'「『]+|["'」』]+$/g, '')
+      .replace(/^(トークテーマ[：:!！\s]*)/i, '')
+      .replace(/[*#_~`]/g, '')
+      .trim();
+
+    return text || getFallbackTopic();
+  } catch (err) {
+    console.warn('[generateTalkTopicWithGemini] Failed to generate talk topic, using fallback:', err);
+    return getFallbackTopic();
+  }
+}
+
 // ======================================================================
 // ゲーム進捗 (Game Progress) & クラウドDB永続化 API
 // ======================================================================
