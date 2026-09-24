@@ -18,6 +18,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { OrbitingStars } from './OrbitingStars';
+import { DiscordUsernameHelpModal } from './DiscordUsernameHelpModal';
 import { verifyMoffyImage, fetchAuthConfig } from '../services/api';
 import {
   verifyDiscordUser,
@@ -147,6 +148,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
     return null;
   });
   const [isGuestMode, setIsGuestMode] = useState<boolean>(false);
+  const [showDiscordHelp, setShowDiscordHelp] = useState(false);
 
   const initialNameParts = React.useMemo(() => splitGoogleName(googleOnboardingInfo?.name), [googleOnboardingInfo?.name]);
   const [lastName, setLastName] = useState(initialNameParts.lastName);
@@ -1042,9 +1044,20 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
             {/* ------------------------------------------------------------ */}
             <div className="animate-fade-in">
               <div className="flex items-center justify-between mb-2">
-                <label htmlFor="discordId" className="text-xs font-bold text-gray-300">
-                  1. Discord ユーザー名
-                </label>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="discordId" className="text-xs font-bold text-gray-300">
+                    1. Discord ユーザー名
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowDiscordHelp(true)}
+                    className="inline-flex items-center gap-1 text-[11px] text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                    aria-label="Discord ユーザー名の確認方法"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span>確認方法</span>
+                  </button>
+                </div>
                 {isIdCompleted && (
                   <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1 animate-fade-in">
                     <ShieldCheck className="w-3.5 h-3.5" />
@@ -1056,9 +1069,9 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
               {!isIdCompleted ? (
                 pending2FaSession ? (
                   /* 🌟 API v2.0.0: Discord 常設ボタン式 2FA 待機カード */
-                  <div className="p-4 rounded-2xl bg-gray-900 border border-google-blue/40 shadow-xl space-y-4 animate-fade-in">
+                  <div className="p-4 rounded-xl bg-neutral-900 border border-neutral-800 space-y-4 animate-fade-in text-neutral-100">
                     <div className="flex items-center gap-3">
-                      <div className="relative w-12 h-12 rounded-full overflow-hidden border border-google-blue/50 bg-gray-800 shrink-0">
+                      <div className="relative w-10 h-10 rounded-full overflow-hidden border border-neutral-700 bg-neutral-800 shrink-0">
                         <img
                           src={pending2FaSession.avatarUrl || getDiscordAvatarUrl(pending2FaSession.userName)}
                           alt="Discord Avatar"
@@ -1069,31 +1082,31 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                         />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-white text-sm truncate">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-semibold text-white text-xs truncate">
                             {pending2FaSession.displayname || pending2FaSession.userName}
                           </span>
-                          <span className="text-[10px] text-google-blue font-mono bg-google-blue/10 px-1.5 py-0.5 rounded border border-google-blue/30 shrink-0">
+                          <span className="text-[10px] text-google-blue font-mono shrink-0">
                             承認待機中
                           </span>
                         </div>
-                        <p className="text-xs text-gray-400 font-mono truncate">
+                        <p className="text-[11px] text-neutral-400 font-mono truncate">
                           @{pending2FaSession.userName}
                         </p>
                       </div>
                     </div>
 
-                    <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-1 text-xs">
+                    <div className="p-3 bg-neutral-950/60 rounded-lg border border-neutral-800 space-y-1 text-xs">
                       <p className="text-white font-medium flex items-center gap-1.5">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-google-blue shrink-0" />
                         <span>Discord公式サーバーで【承認】を押してください</span>
                       </p>
-                      <p className="text-gray-400 text-[11px] leading-relaxed">
-                        常設認証パネルのボタンを押すと、自動的に認証が完了します。
+                      <p className="text-neutral-400 text-[11px] leading-relaxed">
+                        公式サーバーの常設認証パネルのボタンを押すと、自動的に完了します。
                       </p>
                       {pending2FaRemainingSeconds !== null && (
-                        <div className="flex items-center gap-1 text-[11px] text-amber-400 font-mono pt-1">
-                          <Clock className="w-3 h-3" />
+                        <div className="flex items-center gap-1 text-[11px] text-neutral-400 font-mono pt-1">
+                          <Clock className="w-3 h-3 text-neutral-500" />
                           <span>有効期限: 残り約{Math.floor(pending2FaRemainingSeconds / 60)}分{String(pending2FaRemainingSeconds % 60).padStart(2, '0')}秒</span>
                         </div>
                       )}
@@ -1104,7 +1117,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                         href={pending2FaSession.panelUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="w-full h-11 rounded-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-xs transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                        className="w-full min-h-[44px] rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <ExternalLink className="w-4 h-4" />
                         <span>Discord 認証パネルを開く</span>
@@ -1114,15 +1127,15 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                     <button
                       type="button"
                       onClick={handleContinueAsGuest}
-                      className="w-full text-center text-xs text-google-blue hover:text-white py-1 transition-colors cursor-pointer font-medium"
+                      className="w-full min-h-[44px] rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium transition-colors flex items-center justify-center cursor-pointer"
                     >
-                      認証をスキップしてゲストとして進む
+                      認証をスキップして進む（ゲスト）
                     </button>
 
                     <button
                       type="button"
                       onClick={handleCancel2FaSession}
-                      className="w-full text-center text-xs text-gray-400 hover:text-white py-1 transition-colors cursor-pointer"
+                      className="w-full py-2 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
                     >
                       キャンセルして戻る
                     </button>
@@ -1134,7 +1147,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                       {activeTarget === 'id' && <OrbitingStars count={5} isDark={true} />}
 
                       <div className="relative flex items-center">
-                        <span className="absolute left-4 z-20 text-gray-400 font-mono text-base pointer-events-none">
+                        <span className="absolute left-3 z-20 text-neutral-500 font-mono text-sm pointer-events-none">
                           @
                         </span>
                         <input
@@ -1151,7 +1164,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                           placeholder="ユーザー名を入力"
                           autoComplete="off"
                           autoFocus
-                          className="relative z-10 w-full h-14 pl-9 pr-5 rounded-full border-2 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium transition shadow-sm focus:outline-none border-gray-600 focus:border-google-blue"
+                          className="relative z-10 w-full h-11 pl-8 pr-4 rounded-xl border border-neutral-700 bg-neutral-950 text-white placeholder-neutral-500 text-sm font-medium transition focus:outline-none focus:border-google-blue"
                         />
                       </div>
                     </div>
@@ -1161,7 +1174,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                       type="button"
                       onClick={handleVerifyDiscord}
                       disabled={isDiscordVerifying || discordId.trim().replace(/^@/, '').length < 2}
-                      className="w-full h-12 rounded-full bg-google-blue/90 hover:bg-google-blue text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                      className="w-full min-h-[44px] rounded-xl bg-google-blue hover:bg-blue-600 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                     >
                       {isDiscordVerifying ? (
                         <>
@@ -1182,7 +1195,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                         type="button"
                         onClick={handleContinueAsGuest}
                         disabled={discordId.trim().replace(/^@/, '').length < 2}
-                        className="text-[11px] text-gray-400 hover:text-gray-200 underline underline-offset-4 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                        className="text-[11px] text-neutral-400 hover:text-neutral-200 underline underline-offset-4 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                       >
                         アンバサダー認証をスキップして進む（ゲスト）
                       </button>
@@ -1190,19 +1203,19 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
                     {/* 本人確認エラー表示 */}
                     {discordVerifyError && (
-                      <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex flex-col gap-2.5 animate-fade-in">
+                      <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-800/60 text-red-200 text-xs flex flex-col gap-2.5 animate-fade-in">
                         <div className="flex items-start gap-2.5">
                           <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
                           <div className="flex-1 leading-relaxed">
                             <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
-                            <p className="text-red-300/90">{discordVerifyError}</p>
+                            <p className="text-red-300/90 text-[11px]">{discordVerifyError}</p>
                           </div>
                         </div>
                         {/* 🌟 アンバサダー以外でもゲストとして先に進める導線 */}
                         <button
                           type="button"
                           onClick={handleContinueAsGuest}
-                          className="w-full mt-1 py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 text-white font-medium text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          className="w-full min-h-[38px] px-3 rounded-lg bg-white/10 hover:bg-white/15 border border-white/20 text-white font-medium text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <span>認証バッジを付与せずにゲストとして進む</span>
                           <ArrowRight className="w-3.5 h-3.5" />
@@ -1935,6 +1948,12 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
           </form>
         </section>
       )}
+
+      {/* Discord ユーザー名ガイドモーダル */}
+      <DiscordUsernameHelpModal
+        isOpen={showDiscordHelp}
+        onClose={() => setShowDiscordHelp(false)}
+      />
     </div>
   );
 };

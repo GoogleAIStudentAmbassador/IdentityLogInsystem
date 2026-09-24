@@ -276,6 +276,7 @@ export async function loginUser(
     created_at: data.user.created_at,
     updated_at: data.user.updated_at,
     google_id: data.user.google_id || null,
+    is_ambassador: Boolean(data.user.is_ambassador),
   };
 
   const extractedMbti =

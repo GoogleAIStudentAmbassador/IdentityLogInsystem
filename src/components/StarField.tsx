@@ -262,9 +262,11 @@ export const StarField: React.FC<StarFieldProps> = ({
       }
 
       // --- 2. 星本体（中央コア）の描画 ---
+      // 🌟 可読性改善: 手前の設問テキストを阻害しないよう、上品に透過 (平常時 0.22、回答パルス時 最大 0.35)
       ctx.save();
       ctx.translate(centerX, mainY);
       ctx.rotate(coreRotation);
+      ctx.globalAlpha = 0.22 + 0.13 * pulseIntensity;
 
       // 同心円の幾何学破線リング
       ctx.strokeStyle = currentPalette.color;

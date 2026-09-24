@@ -11,7 +11,7 @@
  * - URL フラグメントによるセキュアなトークン受け渡し & 即時アドレスバー浄化
  */
 
-import { getDiscord2FaStatus, TWO_FACTOR_EXPIRY_MS } from '../services/discord2fa';
+import { TWO_FACTOR_EXPIRY_MS } from '../services/discord2fa';
 
 export interface AuthUser {
   discord_user_id: string;
@@ -309,19 +309,8 @@ export class MoffyAuthClient {
       return false;
     }
 
-    // 🌟 二段階認証 (2FA) 検証:
-    // アンバサダーフラグを持つユーザーのみ 2FA 有効期限 (1週間) を検証
-    // アンバサダー以外（一般ゲスト）は 2FA 不要で性格診断・アプリ利用を許可
-    const isAmbassadorUser = Boolean(session.user.is_ambassador || session.user.isAmbassador);
-    if (isAmbassadorUser) {
-      const twoFaStatus = getDiscord2FaStatus(session.user.discord_user_id);
-      if (!twoFaStatus.isVerified) {
-        console.warn('[MoffyAuthClient] 2FA expired or unverified for ambassador. Demoting to guest status.');
-        session.user.is_ambassador = false;
-        session.user.isAmbassador = false;
-        this.saveSession(session);
-      }
-    }
+    // 🌟 MoffyProfile正規仕様: is_ambassador はバックエンド正規マスターデータを忠実に保持
+    // （クライアント側で勝手に資格を剥奪・上書きしない）
 
     // 1. セッション expiresAt 判定
     if (session.expiresAt && Date.now() >= session.expiresAt) {

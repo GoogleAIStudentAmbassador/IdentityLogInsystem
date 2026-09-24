@@ -21,7 +21,8 @@ import {
   getDiscordAvatarUrl,
 } from './services/discordApi';
 import { getDiscord2FaStatus, saveDiscord2FaVerification } from './services/discord2fa';
-import { AlertTriangle, ShieldCheck, Loader2, XCircle, ArrowLeft, ArrowRight, ExternalLink, Clock } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, Loader2, XCircle, ArrowLeft, ArrowRight, ExternalLink, Clock, HelpCircle } from 'lucide-react';
+import { DiscordUsernameHelpModal } from './components/DiscordUsernameHelpModal';
 
 interface OAuthParams {
   clientId: string;
@@ -83,6 +84,7 @@ export const OAuthApp: React.FC = () => {
   const [pending2FaDiscordId, setPending2FaDiscordId] = useState('');
   const [is2FaVerifying, setIs2FaVerifying] = useState(false);
   const [twoFaError, setTwoFaError] = useState<string | null>(null);
+  const [showDiscordHelp, setShowDiscordHelp] = useState(false);
 
   interface PendingInteractive2Fa {
     userName: string;
@@ -225,7 +227,7 @@ export const OAuthApp: React.FC = () => {
             discord_user_id: pending2FaSession.userName,
             is_discord_verified: true,
             discord_verified_at: Date.now(),
-            is_ambassador: true,
+            is_ambassador: Boolean(pending2FaAuth.user.is_ambassador || true),
             photo_url: avatar || pending2FaAuth.user.photo_url || null,
           };
           const token = pending2FaAuth.token;
@@ -293,7 +295,7 @@ export const OAuthApp: React.FC = () => {
         google_id: userData.google_id || null,
         is_discord_verified: twoFa.isVerified,
         discord_verified_at: twoFa.record?.verifiedAt || null,
-        is_ambassador: twoFa.isVerified,
+        is_ambassador: Boolean(userData.is_ambassador || twoFa.isVerified),
       };
 
       const extractedMbti =
@@ -370,7 +372,7 @@ export const OAuthApp: React.FC = () => {
           discord_user_id: res.user_name,
           is_discord_verified: true,
           discord_verified_at: Date.now(),
-          is_ambassador: true,
+          is_ambassador: Boolean(pending2FaAuth.user.is_ambassador || true),
           photo_url: avatar || pending2FaAuth.user.photo_url || null,
         };
         const token = pending2FaAuth.token;
@@ -398,13 +400,13 @@ export const OAuthApp: React.FC = () => {
   };
 
   /**
-   * 🌟 アンバサダー認証をスキップしてゲストとして進行
+   * 🌟 Discord在籍確認（2FA）をスキップして進行
    */
   const handleSkipPending2FaAsGuest = () => {
     if (!pending2FaAuth) return;
     const guestUser: RegistrationResult = {
       ...pending2FaAuth.user,
-      is_ambassador: false,
+      is_ambassador: Boolean(pending2FaAuth.user.is_ambassador),
       is_discord_verified: false,
       discord_verified_at: null,
     };
@@ -539,18 +541,6 @@ export const OAuthApp: React.FC = () => {
       {/* ヘッダー */}
       <Header apiStatus={apiStatus} isDark={true} />
 
-      {/* OAuth認可情報バナー */}
-      <div className="w-full max-w-xl mx-auto px-4 pt-4">
-        <div className="p-3 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between text-xs text-gray-300">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-google-blue shrink-0" />
-            <span>
-              アプリケーション <span className="text-white font-mono font-bold bg-white/10 px-1.5 py-0.5 rounded">{oauthParams.clientId}</span> への認可
-            </span>
-          </div>
-          <span className="text-gray-400 text-[11px] hidden sm:inline">OAuth 2.0 Auth Hub</span>
-        </div>
-      </div>
 
       {/* Open Redirector 遮断警告 */}
       {!isRedirectUriValid && (
@@ -594,32 +584,29 @@ export const OAuthApp: React.FC = () => {
       <main className="flex-1 flex flex-col justify-center">
         {isRedirectUriValid ? (
           pending2FaAuth ? (
-            <div className="w-full max-w-md mx-auto px-4 py-8 animate-fade-in">
-              <div className="bg-gray-900/90 border border-gray-800 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-sm space-y-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-google-blue/10 border border-google-blue/30 flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-6 h-6 text-google-blue" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg sm:text-xl font-bold text-white">
-                      二段階認証（本人確認）
-                    </h2>
-                    <p className="text-xs text-gray-400">
-                      Google 認証完了：Discord 在籍確認が必要です
-                    </p>
-                  </div>
+            <div className="w-full max-w-sm mx-auto px-4 py-8 animate-fade-in">
+              <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-5 text-neutral-100 shadow-xl">
+                {/* ヘッダー */}
+                <div>
+                  <h2 className="text-lg font-semibold tracking-tight text-white">
+                    本人確認（Discord 連携）
+                  </h2>
+                  <p className="mt-1 text-xs text-neutral-400 leading-relaxed">
+                    アカウント保護とアンバサダー資格確認のため、Discord の在籍確認を行います。
+                  </p>
                 </div>
 
-                <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 text-xs space-y-1.5 text-gray-300">
+                {/* 連携アカウント要約 */}
+                <div className="border-y border-neutral-800 py-3 text-xs space-y-1.5 text-neutral-300">
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-400">Google アカウント:</span>
-                    <span className="font-medium text-white truncate max-w-[200px]">
+                    <span className="text-neutral-400">Google アカウント</span>
+                    <span className="font-medium text-white truncate max-w-[180px]">
                       {pending2FaAuth.googleEmail || pending2FaAuth.user.name || '連携アカウント'}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-400">登録ユーザー:</span>
-                    <span className="font-mono text-emerald-400">
+                    <span className="text-neutral-400">登録ユーザーID</span>
+                    <span className="font-mono text-neutral-200">
                       @{pending2FaAuth.user.discord_user_id}
                     </span>
                   </div>
@@ -628,8 +615,8 @@ export const OAuthApp: React.FC = () => {
                 {pending2FaSession ? (
                   /* 常設ボタン式 2FA 待機中カード (API v2.0.0) */
                   <div className="space-y-4 animate-fade-in text-left">
-                    <div className="p-3.5 rounded-2xl bg-gray-800/80 border border-google-blue/40 shadow-sm flex items-center gap-3">
-                      <div className="relative w-12 h-12 rounded-full overflow-hidden border border-google-blue/50 bg-gray-900 shrink-0">
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-neutral-950 border border-neutral-800">
+                      <div className="relative w-10 h-10 rounded-full overflow-hidden border border-neutral-700 bg-neutral-900 shrink-0">
                         <img
                           src={pending2FaSession.avatarUrl || getDiscordAvatarUrl(pending2FaSession.userName)}
                           alt="Discord Avatar"
@@ -640,31 +627,31 @@ export const OAuthApp: React.FC = () => {
                         />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-white text-sm truncate">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-semibold text-white text-xs truncate">
                             {pending2FaSession.displayname || pending2FaSession.userName}
                           </span>
-                          <span className="text-[10px] text-google-blue font-mono bg-google-blue/10 px-1.5 py-0.5 rounded border border-google-blue/30 shrink-0">
+                          <span className="text-[10px] text-google-blue font-mono shrink-0">
                             承認待機中
                           </span>
                         </div>
-                        <p className="text-xs text-gray-400 font-mono truncate">
+                        <p className="text-[11px] text-neutral-400 font-mono truncate">
                           @{pending2FaSession.userName}
                         </p>
                       </div>
                     </div>
 
-                    <div className="p-3.5 bg-white/5 rounded-2xl border border-white/10 space-y-1 text-xs">
+                    <div className="p-3 bg-neutral-950/60 rounded-xl border border-neutral-800/80 space-y-1 text-xs">
                       <p className="text-white font-medium flex items-center gap-1.5">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-google-blue shrink-0" />
                         <span>Discord公式サーバーで【承認】を押してください</span>
                       </p>
-                      <p className="text-gray-400 text-[11px] leading-relaxed">
-                        常設認証パネルのボタンを押すと、自動的に認証が完了します。
+                      <p className="text-neutral-400 text-[11px] leading-relaxed">
+                        公式サーバーの常設認証パネルのボタンを押すと、自動的に完了します。
                       </p>
                       {pending2FaRemainingSeconds !== null && (
-                        <div className="flex items-center gap-1 text-[11px] text-amber-400 font-mono pt-1">
-                          <Clock className="w-3 h-3" />
+                        <div className="flex items-center gap-1 text-[11px] text-neutral-400 font-mono pt-1">
+                          <Clock className="w-3 h-3 text-neutral-500" />
                           <span>有効期限: 残り約{Math.floor(pending2FaRemainingSeconds / 60)}分{String(pending2FaRemainingSeconds % 60).padStart(2, '0')}秒</span>
                         </div>
                       )}
@@ -675,7 +662,7 @@ export const OAuthApp: React.FC = () => {
                         href={pending2FaSession.panelUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="w-full h-11 rounded-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-xs transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                        className="w-full min-h-[44px] rounded-xl bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <ExternalLink className="w-4 h-4" />
                         <span>Discord 認証パネルを開く</span>
@@ -685,47 +672,60 @@ export const OAuthApp: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleSkipPending2FaAsGuest}
-                      className="w-full h-10 rounded-full bg-white/10 hover:bg-white/15 text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full min-h-[44px] rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium transition-colors flex items-center justify-center cursor-pointer"
                     >
-                      <span>認証をスキップしてゲストとしてログイン</span>
+                      <span>認証をスキップして進む（ゲスト）</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={handleCancelPending2Fa}
-                      className="w-full h-10 rounded-full border border-gray-700 hover:border-gray-500 text-gray-400 hover:text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full py-2.5 text-neutral-400 hover:text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
                       <span>キャンセルして戻る</span>
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-3 text-left">
-                    <label htmlFor="pending2FaDiscordInput" className="text-xs font-bold text-gray-300 block">
-                      Discord ユーザー名
-                    </label>
-                    <div className="relative flex items-center">
-                      <span className="absolute left-4 z-20 text-gray-400 font-mono text-base pointer-events-none">
-                        @
-                      </span>
-                      <input
-                        id="pending2FaDiscordInput"
-                        type="text"
-                        value={pending2FaDiscordId.replace(/^@/, '')}
-                        onChange={(e) => {
-                          setPending2FaDiscordId(e.target.value);
-                          if (twoFaError) setTwoFaError(null);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleVerifyPending2Fa();
-                          }
-                        }}
-                        placeholder="ユーザー名を入力"
-                        autoComplete="off"
-                        className="relative z-10 w-full h-14 pl-9 pr-5 rounded-full border-2 bg-gray-900/80 text-white placeholder-gray-500 text-base font-medium transition shadow-sm focus:outline-none border-gray-600 focus:border-google-blue"
-                      />
+                  <div className="space-y-4 text-left">
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label htmlFor="pending2FaDiscordInput" className="text-xs font-medium text-neutral-300">
+                          Discord ユーザー名
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowDiscordHelp(true)}
+                          className="inline-flex items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
+                          aria-label="Discord ユーザー名の確認方法"
+                        >
+                          <HelpCircle className="w-3.5 h-3.5" />
+                          <span>確認方法</span>
+                        </button>
+                      </div>
+                      <div className="relative flex items-center">
+                        <span className="absolute left-3 z-20 text-neutral-500 font-mono text-sm pointer-events-none">
+                          @
+                        </span>
+                        <input
+                          id="pending2FaDiscordInput"
+                          type="text"
+                          value={pending2FaDiscordId.replace(/^@/, '')}
+                          onChange={(e) => {
+                            setPending2FaDiscordId(e.target.value);
+                            if (twoFaError) setTwoFaError(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleVerifyPending2Fa();
+                            }
+                          }}
+                          placeholder="ユーザー名を入力"
+                          autoComplete="off"
+                          className="relative z-10 w-full h-11 pl-8 pr-4 rounded-xl border border-neutral-700 bg-neutral-950 text-white placeholder-neutral-500 text-sm font-medium transition focus:outline-none focus:border-google-blue"
+                        />
+                      </div>
                     </div>
 
                     {/* 本人確認へ進む ボタン */}
@@ -733,7 +733,7 @@ export const OAuthApp: React.FC = () => {
                       type="button"
                       onClick={handleVerifyPending2Fa}
                       disabled={is2FaVerifying || pending2FaDiscordId.trim().replace(/^@/, '').length < 2}
-                      className="w-full h-12 rounded-full bg-google-blue hover:bg-google-blue/90 text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                      className="w-full min-h-[44px] rounded-xl bg-google-blue hover:bg-blue-600 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                     >
                       {is2FaVerifying ? (
                         <>
@@ -753,28 +753,28 @@ export const OAuthApp: React.FC = () => {
                       <button
                         type="button"
                         onClick={handleSkipPending2FaAsGuest}
-                        className="text-[11px] text-gray-400 hover:text-gray-200 underline underline-offset-4 transition cursor-pointer"
+                        className="text-[11px] text-neutral-400 hover:text-neutral-200 underline underline-offset-4 transition cursor-pointer"
                       >
                         アンバサダー認証をスキップして進む（ゲスト）
                       </button>
                     </div>
 
                     {twoFaError && (
-                      <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-xs flex flex-col gap-2.5 animate-fade-in">
+                      <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-800/60 text-red-200 text-xs flex flex-col gap-2.5 animate-fade-in">
                         <div className="flex items-start gap-2.5">
                           <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
                           <div className="flex-1 leading-relaxed">
                             <p className="font-semibold text-red-300 mb-0.5">本人確認が完了できませんでした</p>
-                            <p className="text-red-300/90">{twoFaError}</p>
+                            <p className="text-red-300/90 text-[11px]">{twoFaError}</p>
                           </div>
                         </div>
                         {/* 🌟 エラー時にゲストとして進行できる導線 */}
                         <button
                           type="button"
                           onClick={handleSkipPending2FaAsGuest}
-                          className="w-full mt-1 py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 text-white font-medium text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          className="w-full min-h-[38px] px-3 rounded-lg bg-white/10 hover:bg-white/15 border border-white/20 text-white font-medium text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                         >
-                          <span>認証バッジを付与せずにゲストとしてログイン</span>
+                          <span>認証バッジを付与せずにゲストとして進む</span>
                           <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -783,7 +783,7 @@ export const OAuthApp: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleCancelPending2Fa}
-                      className="w-full h-10 rounded-full border border-gray-700 hover:border-gray-500 text-gray-400 hover:text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full py-2.5 text-neutral-400 hover:text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
                       <span>キャンセル / 別のアカウントでログイン</span>
@@ -807,6 +807,12 @@ export const OAuthApp: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Discord ユーザー名ガイドモーダル */}
+      <DiscordUsernameHelpModal
+        isOpen={showDiscordHelp}
+        onClose={() => setShowDiscordHelp(false)}
+      />
 
       {/* フッター */}
       <footer className="w-full py-8 text-center border-t border-white/10 text-gray-400">
