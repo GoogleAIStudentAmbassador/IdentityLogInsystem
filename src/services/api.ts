@@ -872,19 +872,23 @@ export interface GenerateTalkTopicParams {
   myMbti?: string | null;
   myName?: string | null;
   myUniversity?: string | null;
+  myHobbies?: string | null;
+  mySkills?: string | null;
   friendMbti?: string | null;
   friendName?: string | null;
   friendUniversity?: string | null;
+  friendHobbies?: string | null;
+  friendSkills?: string | null;
 }
 
 /**
- * 2人のアンバサダーの性格情報（MBTI、名前、所属等）から、
+ * 2人のアンバサダーの性格情報（MBTI、名前、所属、趣味、特技等）から、
  * バックエンドのGeminiテキストAPI（POST /api/v1/gem_text）を用いて
  * 初対面でも盛り上がる相性のいいトークテーマを一言（30〜60文字程度）で推定・生成します。
  * 
  * フェイルセーフ（Fail-Safe）:
  * APIキー未設定時、403/500エラー時、タイムアウト時、ネットワーク切断時は
- * MBTIの特性に応じた決定論的フォールバックテーマを即座に返却します。
+ * 趣味・特技やMBTIの特性に応じた決定論的フォールバックテーマを即座に返却します。
  */
 export async function generateTalkTopicWithGemini(
   params: GenerateTalkTopicParams
@@ -894,6 +898,17 @@ export async function generateTalkTopicWithGemini(
 
   // 決定論的・バリエーション豊かで自然なフォールバック（Fail-Safe）
   const getFallbackTopic = (): string => {
+    // 趣味や特技が判明している場合は、それを活かしたフォールバックを優先
+    if (params.friendHobbies && params.myHobbies && params.friendHobbies === params.myHobbies) {
+      return `お互いに共通する趣味「${params.friendHobbies}」について普段の楽しみ方を聞いてみよう`;
+    }
+    if (params.friendHobbies) {
+      return `相手の趣味「${params.friendHobbies}」について、始めたきっかけや魅力を聞いてみよう`;
+    }
+    if (params.friendSkills) {
+      return `相手の特技「${params.friendSkills}」について、普段どんな活動で活かしているか聞いてみよう`;
+    }
+
     const pick = (list: string[]): string => {
       const seed = (params.friendName || '') + (params.myName || '') + friendMbti;
       let hash = 0;
@@ -948,17 +963,21 @@ export async function generateTalkTopicWithGemini(
     myMbti ? `性格タイプ: ${myMbti}` : '',
     params.myName ? `名前: ${params.myName}` : '',
     params.myUniversity && params.myUniversity !== '未設定' ? `所属: ${params.myUniversity}` : '',
+    params.myHobbies ? `趣味: ${params.myHobbies}` : '',
+    params.mySkills ? `特技: ${params.mySkills}` : '',
   ].filter(Boolean).join('、') || '一般参加者';
 
   const friendInfo = [
     friendMbti ? `性格タイプ: ${friendMbti}` : '',
     params.friendName ? `名前: ${params.friendName}` : '',
     params.friendUniversity && params.friendUniversity !== '未設定' ? `所属: ${params.friendUniversity}` : '',
+    params.friendHobbies ? `趣味: ${params.friendHobbies}` : '',
+    params.friendSkills ? `特技: ${params.friendSkills}` : '',
   ].filter(Boolean).join('、');
 
   const prompt = `あなたは「Google AI 学生アンバサダー」の公式交流ファシリテーターAIです。
 二人のアンバサダーがフレンド交換（名刺交換）を行いました。
-お互いの性格タイプや情報をもとに、二人が初対面で自然に打ち解けられる「相性のいいトークテーマ」を一言で提案してください。
+お互いの性格タイプや情報（趣味・特技・所属大学等）をもとに、二人が初対面で自然に打ち解けられる「相性のいいトークテーマ」を一言で提案してください。
 
 【参加者情報】
 - ユーザーA（自分）: ${myInfo}
@@ -966,8 +985,9 @@ export async function generateTalkTopicWithGemini(
 
 【ルール】
 1. トークテーマは「〜について聞いてみよう」「〜について話してみては？」のような、初対面でも会話が弾む具体的で前向きな一言（30文字〜60文字程度）にしてください。
-2. 絵文字や記号（★、✨、！の連続など）、前置き（「トークテーマは〜」など）、引用符（「」や""）は一切出力せず、トークテーマの本文テキストのみを1行で出力してください。
-3. 相手の性格タイプ（MBTI）の特性や強みを活かした、親しみやすい話題にしてください。`;
+2. お互いの趣味や特技が入力されている場合は、その共通点や興味深いポイントを会話のフックとして積極的に取り入れた魅力的な話題にしてください。
+3. 絵文字や記号（★、✨、！の連続など）、前置き（「トークテーマは〜」など）、引用符（「」や""）は一切出力せず、トークテーマの本文テキストのみを1行で出力してください。
+4. 相手の性格タイプ（MBTI）の特性や強みを活かした、親しみやすい話題にしてください。`;
 
   try {
     const baseUrl = getApiBaseUrl();

@@ -13,7 +13,7 @@ import {
   UserPlus,
   BookOpen,
 } from 'lucide-react';
-import type { MbtiType, SnsPlatform, SnsLinkItem, FriendItem } from './types';
+import type { MbtiType, SnsPlatform, SnsLinkItem, FriendItem, UserMoffySession } from './types';
 import { MBTI_ARCHETYPES } from './data/personalityQuestions';
 import { resolveSnsUrl } from './utils/snsUtils';
 import { MoffyAuthClient } from './utils/oauthClient';
@@ -118,6 +118,17 @@ export const ShareApp: React.FC = () => {
   const currentUser = authClient.getUser();
   const currentUserId = currentUser?.discord_user_id || null;
   const currentUserMbti = (currentUser?.mbti || null) as MbtiType | null;
+
+  // ログインユーザー自身のプロフィール・趣味・特技セッション
+  const currentUserSession = useMemo<UserMoffySession | null>(() => {
+    if (!currentUserId) return null;
+    try {
+      const raw = localStorage.getItem(`moffy_user_session_${currentUserId}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, [currentUserId]);
 
   // 二重実行防止ガード（レースコンディション対策）
   const hasExecutedRef = useRef<boolean>(false);
@@ -291,8 +302,8 @@ export const ShareApp: React.FC = () => {
     let isMounted = true;
 
     async function loadTalkTopic() {
-      // 🌟 同一ペア間のローカルキャッシュ確認（APIクォータ消費の極小化）
-      const cacheKey = `moffy_talk_topic_${currentUserId || 'guest'}_${targetDiscordId}`;
+      // 🌟 同一ペア間のローカルキャッシュ確認（趣味・特技の変更にも連動）
+      const cacheKey = `moffy_talk_topic_v2_${currentUserId || 'guest'}_${targetDiscordId}_${hobbies || ''}_${skills || ''}_${currentUserSession?.hobbies || ''}_${currentUserSession?.skills || ''}`;
       try {
         const cached = localStorage.getItem(cacheKey);
         if (cached && cached.trim()) {
@@ -312,9 +323,13 @@ export const ShareApp: React.FC = () => {
           myMbti: currentUserMbti,
           myName: currentUser?.nickname || currentUser?.name || null,
           myUniversity: currentUser?.university || null,
+          myHobbies: currentUserSession?.hobbies || null,
+          mySkills: currentUserSession?.skills || null,
           friendMbti: mbti,
           friendName: displayName,
           friendUniversity: university,
+          friendHobbies: hobbies || null,
+          friendSkills: skills || null,
         });
         if (isMounted) {
           setTalkTopic(topic);
@@ -343,7 +358,7 @@ export const ShareApp: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [mbti, currentUserMbti, currentUser?.nickname, currentUser?.name, currentUser?.university, displayName, university, currentUserId, targetDiscordId]);
+  }, [mbti, currentUserMbti, currentUser?.nickname, currentUser?.name, currentUser?.university, currentUserSession, displayName, university, hobbies, skills, currentUserId, targetDiscordId]);
 
   // トークテーマのタイピング風文字アニメーション
   useEffect(() => {

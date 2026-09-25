@@ -198,6 +198,29 @@ export const FriendsTab: React.FC<FriendsTabProps> = ({
                         </span>
                       )}
                     </div>
+
+                    {(friend.hobbies || friend.skills) && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {friend.hobbies && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border truncate max-w-[130px] ${
+                            isDarkMode
+                              ? 'border-neutral-700 bg-neutral-800 text-neutral-300'
+                              : 'border-neutral-200 bg-neutral-100 text-neutral-600'
+                          }`} title={`趣味: ${friend.hobbies}`}>
+                            趣味: {friend.hobbies}
+                          </span>
+                        )}
+                        {friend.skills && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border truncate max-w-[130px] ${
+                            isDarkMode
+                              ? 'border-neutral-700 bg-neutral-800 text-neutral-300'
+                              : 'border-neutral-200 bg-neutral-100 text-neutral-600'
+                          }`} title={`特技: ${friend.skills}`}>
+                            特技: {friend.skills}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
