@@ -411,6 +411,7 @@ export const HomeApp: React.FC = () => {
             preferredStyle={preferredStyle}
             discordAvatarUrl={discordAvatarUrl}
             onStyleChange={handleStyleChange}
+            onGoToProfile={() => setActiveTab('profile')}
           />
         )}
         {activeTab === 'dex' && (

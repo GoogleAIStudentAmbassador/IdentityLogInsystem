@@ -11,6 +11,7 @@ interface PassportTabProps {
   preferredStyle?: MoffyIconStyle;
   discordAvatarUrl?: string;
   onStyleChange?: (style: MoffyIconStyle) => void;
+  onGoToProfile?: () => void;
 }
 
 export const PassportTab: React.FC<PassportTabProps> = ({
@@ -20,8 +21,8 @@ export const PassportTab: React.FC<PassportTabProps> = ({
   preferredStyle,
   discordAvatarUrl,
   onStyleChange,
+  onGoToProfile,
 }) => {
-  // 🌟 性格診断受講・モッフィー作成済み判定
   const hasMoffy = Boolean(
     session?.mbti ||
     user?.mbti ||
@@ -30,6 +31,11 @@ export const PassportTab: React.FC<PassportTabProps> = ({
     user?.arranged_photo_url ||
     user?.default_photo_url
   );
+
+  // 🌟 メイン画像・アレンジ画像が存在しないかどうかの判定
+  const hasDefaultPhoto = Boolean(session?.defaultPhotoUrl || user?.default_photo_url);
+  const hasArrangedPhoto = Boolean(session?.arrangedPhotoUrl || user?.arranged_photo_url);
+  const isMissingImages = Boolean(hasMoffy && !hasDefaultPhoto && !hasArrangedPhoto);
 
   // 初期スタイル: preferredStyle prop, session または localStorage から復元
   const getInitialStyle = (): MoffyIconStyle => {
@@ -353,6 +359,74 @@ export const PassportTab: React.FC<PassportTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* 🌟 メイン画像・アレンジ画像が存在しない場合: もう一度モッフィーを生成する */}
+      {isMissingImages && (
+        <div className={`mt-6 w-full max-w-sm rounded-2xl p-5 border text-center space-y-3.5 transition-colors ${
+          isDarkMode
+            ? 'border-amber-900/40 bg-amber-950/20 text-neutral-100'
+            : 'border-amber-200 bg-amber-50/70 text-neutral-900 shadow-sm'
+        }`}>
+          <div className="space-y-1">
+            <span className="text-[11px] font-mono uppercase tracking-wider font-semibold text-amber-500">
+              モッフィー再生成
+            </span>
+            <h3 className="text-sm sm:text-base font-semibold">
+              モッフィーの画像を生成する
+            </h3>
+            <p className={`text-xs leading-relaxed ${
+              isDarkMode ? 'text-neutral-400' : 'text-neutral-600'
+            }`}>
+              保存された回答データをもとに、質問をスキップしてあなたのモッフィーをもう一度生成できます。
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = './index.html?regenerate_moffy=true';
+            }}
+            className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-[#1a73e8] hover:bg-[#1557b0] transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <span>もう一度モッフィーを生成する</span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* 🌟 性格診断完了時: プロフィールをカスタマイズしよう！ */}
+      {hasMoffy && (
+        <div className={`mt-4 w-full max-w-sm rounded-2xl p-5 border text-center space-y-3.5 transition-colors ${
+          isDarkMode
+            ? 'border-neutral-800 bg-neutral-900/60 text-neutral-100'
+            : 'border-neutral-200 bg-white text-neutral-900 shadow-sm'
+        }`}>
+          <div className="space-y-1">
+            <span className="text-[11px] font-mono uppercase tracking-wider font-semibold text-[#1a73e8] dark:text-[#8ab4f8]">
+              プロフィール設定
+            </span>
+            <h3 className="text-sm sm:text-base font-semibold">
+              プロフィールをカスタマイズしよう！
+            </h3>
+            <p className={`text-xs leading-relaxed ${
+              isDarkMode ? 'text-neutral-400' : 'text-neutral-600'
+            }`}>
+              趣味や特技、SNSリンクを設定して、フレンド交換で自分をアピールしましょう。
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              onGoToProfile?.();
+            }}
+            className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-[#1a73e8] hover:bg-[#1557b0] transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <span>プロフィールを編集する</span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* 🌟 未受講時のみ表示されるチュートリアルセクション（受講後は完全非表示） */}
       {!hasMoffy && (

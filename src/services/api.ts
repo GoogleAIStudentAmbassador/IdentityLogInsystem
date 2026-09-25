@@ -15,6 +15,8 @@ import type {
   FriendProgressData,
   PersonalityQuizProgressData,
   TutorialState,
+  MoffyQuizData,
+  MoffyCustomFeatures,
 } from '../types';
 import { ARCHETYPE_DEFAULTS } from '../data/personalityQuestions';
 
@@ -1157,6 +1159,36 @@ export async function clearPersonalityQuizProgress(discordUserId: string): Promi
   } catch {
     // ignore
   }
+}
+
+// 🌟 性格診断の回答データおよびモッフィー特徴データの永続化
+const MOFFY_QUIZ_DATA_GAME_ID = 'moffy_quiz_data';
+const MOFFY_CUSTOM_FEATURES_GAME_ID = 'moffy_custom_features';
+
+export async function saveMoffyQuizData(
+  discordUserId: string,
+  data: MoffyQuizData
+): Promise<boolean> {
+  return saveGameProgress(MOFFY_QUIZ_DATA_GAME_ID, discordUserId, data);
+}
+
+export async function getMoffyQuizData(
+  discordUserId: string
+): Promise<MoffyQuizData | null> {
+  return getGameProgress<MoffyQuizData>(MOFFY_QUIZ_DATA_GAME_ID, discordUserId);
+}
+
+export async function saveMoffyCustomFeatures(
+  discordUserId: string,
+  data: MoffyCustomFeatures
+): Promise<boolean> {
+  return saveGameProgress(MOFFY_CUSTOM_FEATURES_GAME_ID, discordUserId, data);
+}
+
+export async function getMoffyCustomFeatures(
+  discordUserId: string
+): Promise<MoffyCustomFeatures | null> {
+  return getGameProgress<MoffyCustomFeatures>(MOFFY_CUSTOM_FEATURES_GAME_ID, discordUserId);
 }
 
 // ======================================================================

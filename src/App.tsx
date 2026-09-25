@@ -24,6 +24,10 @@ import {
   getPersonalityQuizProgress,
   clearPersonalityQuizProgress,
   saveGameProgress,
+  saveMoffyQuizData,
+  getMoffyQuizData,
+  saveMoffyCustomFeatures,
+  getMoffyCustomFeatures,
 } from './services/api';
 import { MoffyAuthClient } from './utils/oauthClient';
 import { Header } from './components/Header';
@@ -100,6 +104,10 @@ export const App: React.FC = () => {
   // 性格診断の途中保存データ（回答・開放質問数）
   const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
   const [quizRevealedCount, setQuizRevealedCount] = useState<number>(1);
+
+  // 再生成時のカスタマイズ初期値（復元データ）
+  const [customInitialWish, setCustomInitialWish] = useState<string>('');
+  const [customInitialColor, setCustomInitialColor] = useState<string>('');
 
   // 🌟 回答連打時の非同期状態競合・巻き戻り防止のためのデバウンスタイマー
   const progressSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -240,7 +248,39 @@ export const App: React.FC = () => {
 
       const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
       const isRetake = urlParams?.get('retake') === 'true';
+      const isRegenerate = urlParams?.get('regenerate_moffy') === 'true';
       const isExplicitQuizStart = urlParams?.get('start_quiz') === 'true' || isRetake;
+
+      // 🌟 再生成モード: 性格診断の回答データ・特徴データを復元し、質問をスキップして直接カスタマイズ画面へ
+      if (isRegenerate) {
+        let restoredMbti: MbtiType = (localSession?.mbti || userResult.mbti || 'INTJ') as MbtiType;
+        try {
+          const quizData = await getMoffyQuizData(resolvedUserId);
+          if (quizData) {
+            if (quizData.answers) setQuizAnswers(quizData.answers);
+            if (quizData.traitScores) setTraitScores(quizData.traitScores);
+            if (quizData.mbti) restoredMbti = quizData.mbti;
+          }
+        } catch (e) {
+          console.warn('Could not restore moffy quiz data:', e);
+        }
+
+        try {
+          const customFeatures = await getMoffyCustomFeatures(resolvedUserId);
+          if (customFeatures) {
+            if (customFeatures.wish) setCustomInitialWish(customFeatures.wish);
+            if (customFeatures.color) setCustomInitialColor(customFeatures.color);
+          }
+        } catch (e) {
+          console.warn('Could not restore moffy custom features:', e);
+        }
+
+        const targetArchetype = MBTI_ARCHETYPES[restoredMbti] || MBTI_ARCHETYPES.INTJ;
+        setSelectedArchetype(targetArchetype);
+        setIsDarkTheme(true);
+        setStage('customize');
+        return;
+      }
 
       if (hasArrangedMoffy && !isRetake) {
         const resolvedMbti = (localSession?.mbti || userResult.mbti || 'INTJ') as MbtiType;
@@ -387,6 +427,18 @@ export const App: React.FC = () => {
     setTraitScores(scores);
     setSelectedArchetype(targetArchetype);
 
+    // 🌟 回答データ・4次元スコア・判定MBTIをDBに永続化保存
+    if (discordUserId) {
+      saveMoffyQuizData(discordUserId, {
+        answers,
+        traitScores: scores,
+        mbti: calculatedMbti,
+        updatedAt: new Date().toISOString(),
+      }).catch((err) => {
+        console.warn('Failed to save moffy quiz data:', err);
+      });
+    }
+
     if (!hasMoffy) {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
       setIsDarkTheme(true);
@@ -456,7 +508,19 @@ export const App: React.FC = () => {
   // ======================================================================
   // モッフィーカスタマイズ完了 ➔ 2段階画像生成パイプライン実行！
   // ======================================================================
-  const handleCustomizeSubmit = async (params: CreateMoffyParams) => {
+  const handleCustomizeSubmit = async (params: CreateMoffyParams, customWish?: string, customColor?: string) => {
+    // 🌟 モッフィー特徴データをDBに永続化保存
+    if (discordUserId) {
+      saveMoffyCustomFeatures(discordUserId, {
+        wish: customWish || customInitialWish || '',
+        color: customColor || params.color || customInitialColor || '',
+        params,
+        updatedAt: new Date().toISOString(),
+      }).catch((err) => {
+        console.warn('Failed to save moffy custom features:', err);
+      });
+    }
+
     const randomShard = SHARD_PALETTES[Math.floor(Math.random() * SHARD_PALETTES.length)];
     setChosenShard(randomShard);
     setIsLoadingEnding(false);
@@ -733,10 +797,12 @@ export const App: React.FC = () => {
 
         {stage === 'customize' && (
           <MoffyCustomizeScreen
-            key={selectedArchetype.mbtiCode}
+            key={`${selectedArchetype.mbtiCode}_${customInitialWish}`}
             archetype={selectedArchetype}
             discordUserId={discordUserId}
             onSubmit={handleCustomizeSubmit}
+            initialWish={customInitialWish}
+            initialColor={customInitialColor}
           />
         )}
 

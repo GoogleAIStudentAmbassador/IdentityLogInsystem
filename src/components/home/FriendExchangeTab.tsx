@@ -83,6 +83,8 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
 
   const birthday = session?.birthday;
   const showBirthday = session?.showBirthday;
+  const hobbies = session?.hobbies;
+  const skills = session?.skills;
   const snsLinks = session?.snsLinks;
 
   // QRコード生成（中央に選択されたモッフィー画像を合成）
@@ -103,6 +105,8 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
       photoUrl: moffyPhotoUrl || undefined,
       birthday: birthday || undefined,
       showBirthday,
+      hobbies: hobbies || undefined,
+      skills: skills || undefined,
       isAmbassador,
       snsLinks,
     });
@@ -123,7 +127,7 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [hasMoffy, discordUserId, fullName, lastName, firstName, nickname, mbti, university, grade, moffyPhotoUrl, birthday, showBirthday, isAmbassador, snsLinks]);
+  }, [hasMoffy, discordUserId, fullName, lastName, firstName, nickname, mbti, university, grade, moffyPhotoUrl, birthday, showBirthday, hobbies, skills, isAmbassador, snsLinks]);
 
   // Discord ID コピー処理
   const handleCopyDiscordId = useCallback(async () => {

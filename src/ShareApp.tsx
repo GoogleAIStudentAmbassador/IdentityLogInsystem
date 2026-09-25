@@ -77,6 +77,8 @@ export const ShareApp: React.FC = () => {
   const initialPhoto = queryParams.get('photo') || queryParams.get('photo_url') || '';
   const initialBirthday = queryParams.get('bday') || '';
   const initialShowBirthday = queryParams.get('showBday') === '1';
+  const initialHobbies = queryParams.get('hobbies') || '';
+  const initialSkills = queryParams.get('skills') || '';
   const isAmbassador = queryParams.get('ambassador') === '1';
 
   // プロフィールステート
@@ -88,6 +90,8 @@ export const ShareApp: React.FC = () => {
   const [photoUrl, setPhotoUrl] = useState<string>(initialPhoto);
   const [birthday, setBirthday] = useState<string>(initialBirthday);
   const [showBirthday, setShowBirthday] = useState<boolean>(initialShowBirthday);
+  const [hobbies, setHobbies] = useState<string>(initialHobbies);
+  const [skills, setSkills] = useState<string>(initialSkills);
   const [snsLinks, setSnsLinks] = useState<SnsLinkItem[]>(() => {
     const rawSns = queryParams.get('sns');
     if (!rawSns) return [];
@@ -135,6 +139,8 @@ export const ShareApp: React.FC = () => {
       let finalMbti = initialMbti;
       let finalBirthday = initialBirthday;
       let finalShowBirthday = initialShowBirthday;
+      let finalHobbies = initialHobbies;
+      let finalSkills = initialSkills;
       let finalSns = snsLinks;
 
       // 1. APIから最新プロフィール取得
@@ -190,6 +196,14 @@ export const ShareApp: React.FC = () => {
             finalShowBirthday = profileExt.showBirthday;
             setShowBirthday(finalShowBirthday);
           }
+          if (profileExt.hobbies) {
+            finalHobbies = profileExt.hobbies;
+            setHobbies(finalHobbies);
+          }
+          if (profileExt.skills) {
+            finalSkills = profileExt.skills;
+            setSkills(finalSkills);
+          }
           if (Array.isArray(profileExt.snsLinks) && profileExt.snsLinks.length > 0) {
             finalSns = profileExt.snsLinks;
             setSnsLinks(finalSns);
@@ -219,6 +233,8 @@ export const ShareApp: React.FC = () => {
             grade: finalGrade || null,
             birthday: finalBirthday || null,
             showBirthday: finalShowBirthday,
+            hobbies: finalHobbies || undefined,
+            skills: finalSkills || undefined,
             isAmbassador,
             snsLinks: finalSns,
             addedAt: new Date().toISOString(),
@@ -251,7 +267,7 @@ export const ShareApp: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [targetDiscordId, currentUserId, currentUserMbti, initialNickname, initialName, initialUniv, initialGrade, initialPhoto, initialMbti, initialBirthday, initialShowBirthday, snsLinks, initialLastName, initialFirstName, isAmbassador]);
+  }, [targetDiscordId, currentUserId, currentUserMbti, initialNickname, initialName, initialUniv, initialGrade, initialPhoto, initialMbti, initialBirthday, initialShowBirthday, initialHobbies, initialSkills, snsLinks, initialLastName, initialFirstName, isAmbassador]);
 
   const archetype = MBTI_ARCHETYPES[mbti] || MBTI_ARCHETYPES.INTJ;
   const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
@@ -592,6 +608,30 @@ export const ShareApp: React.FC = () => {
                   <div className="mt-2 inline-flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full bg-pink-500/10 text-pink-500 dark:text-pink-400 border border-pink-500/20">
                     <Calendar className="w-3.5 h-3.5" />
                     <span>{birthday}</span>
+                  </div>
+                )}
+
+                {/* 🌟 趣味・特技 */}
+                {(hobbies || skills) && (
+                  <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
+                    {hobbies && (
+                      <span className={`text-[11px] px-2.5 py-0.5 rounded-full border ${
+                        isDarkMode
+                          ? 'border-neutral-700 bg-neutral-800/80 text-neutral-300'
+                          : 'border-neutral-200 bg-neutral-100 text-neutral-700'
+                      }`}>
+                        趣味: {hobbies}
+                      </span>
+                    )}
+                    {skills && (
+                      <span className={`text-[11px] px-2.5 py-0.5 rounded-full border ${
+                        isDarkMode
+                          ? 'border-neutral-700 bg-neutral-800/80 text-neutral-300'
+                          : 'border-neutral-200 bg-neutral-100 text-neutral-700'
+                      }`}>
+                        特技: {skills}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

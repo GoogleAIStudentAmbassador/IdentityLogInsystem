@@ -103,6 +103,46 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   // 誕生日（デフォルト非表示）
   const [birthday, setBirthday] = useState<string>(() => session?.birthday || '');
   const [showBirthday, setShowBirthday] = useState<boolean>(() => session?.showBirthday ?? false);
+  // 趣味・特技（自然言語入力）
+  const [hobbies, setHobbies] = useState<string>(() => session?.hobbies || '');
+  const [skills, setSkills] = useState<string>(() => session?.skills || '');
+  // SNSリンク一覧ステート
+  const [snsLinks, setSnsLinks] = useState<SnsLinkItem[]>(() => {
+    if (session?.snsLinks && Array.isArray(session.snsLinks) && session.snsLinks.length > 0) {
+      return session.snsLinks;
+    }
+    return [];
+  });
+
+  // クラウドDB (moffy_profile_ext) からの最新プロフィール拡張データの取得・同期
+  useEffect(() => {
+    if (!discordId || discordId === 'Ambassador') return;
+    let isMounted = true;
+
+    getGameProgress<{
+      birthday?: string;
+      showBirthday?: boolean;
+      snsLinks?: SnsLinkItem[];
+      hobbies?: string;
+      skills?: string;
+    }>('moffy_profile_ext', discordId)
+      .then((ext) => {
+        if (isMounted && ext) {
+          if (ext.hobbies !== undefined) setHobbies(ext.hobbies);
+          if (ext.skills !== undefined) setSkills(ext.skills);
+          if (ext.birthday !== undefined) setBirthday(ext.birthday);
+          if (ext.showBirthday !== undefined) setShowBirthday(ext.showBirthday);
+          if (ext.snsLinks && Array.isArray(ext.snsLinks)) setSnsLinks(ext.snsLinks);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load moffy_profile_ext from DB:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [discordId]);
 
   // パートナーカードの自動生成・同期（診断済みユーザーのみ実行）
   useEffect(() => {
@@ -172,14 +212,6 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
     };
   }, [hasMoffy, archetype, discordId, user, session, activePhotoUrl, lastName, firstName, nickname, isAmbassador, onUpdateSession]);
 
-  // SNSリンク一覧ステート
-  const [snsLinks, setSnsLinks] = useState<SnsLinkItem[]>(() => {
-    if (session?.snsLinks && Array.isArray(session.snsLinks) && session.snsLinks.length > 0) {
-      return session.snsLinks;
-    }
-    return [];
-  });
-
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
 
   // パートナーカード画像のダウンロード
@@ -235,6 +267,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
     const cleanNickname = sanitizeTextInput(nickname, 30);
     const cleanUniversity = sanitizeTextInput(university, 50);
     const cleanGrade = sanitizeTextInput(grade, 20);
+    const cleanHobbies = sanitizeTextInput(hobbies, 100);
+    const cleanSkills = sanitizeTextInput(skills, 100);
 
     const fullName = [cleanLastName, cleanFirstName].filter(Boolean).join(' ') || session?.name || user?.name || discordId;
 
@@ -263,6 +297,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       nickname: cleanNickname,
       university: cleanUniversity,
       grade: cleanGrade,
+      hobbies: cleanHobbies,
+      skills: cleanSkills,
       snsLinks: cleanSnsLinks,
       birthday: cleanBirthday,
       showBirthday,
@@ -283,6 +319,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
         birthday: cleanBirthday,
         showBirthday,
         snsLinks: cleanSnsLinks,
+        hobbies: cleanHobbies,
+        skills: cleanSkills,
       }).catch((err) => {
         console.warn('Failed to sync profile ext to cloud:', err);
       });
@@ -596,6 +634,44 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
               </option>
             )}
           </select>
+        </div>
+
+        {/* 趣味（自然言語入力） */}
+        <div>
+          <label className={`block mb-1 font-medium ${isDarkMode ? 'text-neutral-300' : 'text-neutral-700'}`}>
+            趣味
+          </label>
+          <input
+            type="text"
+            value={hobbies}
+            onChange={(e) => setHobbies(e.target.value)}
+            placeholder="例: 写真撮影、カフェ巡り、読書"
+            maxLength={100}
+            className={`w-full min-h-[40px] px-3 rounded-xl border text-xs transition outline-none ${
+              isDarkMode
+                ? 'border-neutral-700 bg-neutral-950 text-neutral-100 focus:border-[#4285f4] placeholder:text-neutral-600'
+                : 'border-neutral-200 bg-neutral-50 text-neutral-900 focus:border-[#4285f4] placeholder:text-neutral-400'
+            }`}
+          />
+        </div>
+
+        {/* 特技（自然言語入力） */}
+        <div>
+          <label className={`block mb-1 font-medium ${isDarkMode ? 'text-neutral-300' : 'text-neutral-700'}`}>
+            特技
+          </label>
+          <input
+            type="text"
+            value={skills}
+            onChange={(e) => setSkills(e.target.value)}
+            placeholder="例: Pythonプログラミング、プレゼンテーション、語学"
+            maxLength={100}
+            className={`w-full min-h-[40px] px-3 rounded-xl border text-xs transition outline-none ${
+              isDarkMode
+                ? 'border-neutral-700 bg-neutral-950 text-neutral-100 focus:border-[#4285f4] placeholder:text-neutral-600'
+                : 'border-neutral-200 bg-neutral-50 text-neutral-900 focus:border-[#4285f4] placeholder:text-neutral-400'
+            }`}
+          />
         </div>
 
         {/* 誕生日設定（デフォルト非表示） */}

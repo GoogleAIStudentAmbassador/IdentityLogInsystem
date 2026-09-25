@@ -7,8 +7,10 @@ import { analyzeMoffyWishWithGemini } from '../services/api';
 interface MoffyCustomizeScreenProps {
   archetype: Archetype;
   discordUserId: string;
-  onSubmit: (params: CreateMoffyParams) => void;
+  onSubmit: (params: CreateMoffyParams, customWish?: string, customColor?: string) => void;
   isSubmitting?: boolean;
+  initialWish?: string;
+  initialColor?: string;
 }
 
 const COLOR_PRESETS = [
@@ -32,11 +34,13 @@ export const MoffyCustomizeScreen: React.FC<MoffyCustomizeScreenProps> = ({
   discordUserId: _discordUserId,
   onSubmit,
   isSubmitting = false,
+  initialWish,
+  initialColor,
 }) => {
   const defaults = ARCHETYPE_DEFAULTS[archetype.mbtiCode] || ARCHETYPE_DEFAULTS.INTJ;
 
-  const [color, setColor] = useState(defaults.color);
-  const [wish, setWish] = useState('');
+  const [color, setColor] = useState(() => initialColor || defaults.color);
+  const [wish, setWish] = useState(() => initialWish || '');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // マウント時に確実に画面最上部へスクロール
@@ -62,7 +66,7 @@ export const MoffyCustomizeScreen: React.FC<MoffyCustomizeScreenProps> = ({
         archetype,
       });
 
-      onSubmit(structuredParams);
+      onSubmit(structuredParams, wish.trim(), color.trim() || defaults.color);
     } catch (err) {
       console.error('Failed to analyze wish with Gemini:', err);
       // 万が一の例外時もデフォルト値でフォールバックして進行
@@ -74,7 +78,7 @@ export const MoffyCustomizeScreen: React.FC<MoffyCustomizeScreenProps> = ({
         body_features: defaults.body_features,
         mouth_features: defaults.mouth_features,
         accessories: 'なし',
-      });
+      }, wish.trim(), color.trim() || defaults.color);
     } finally {
       setIsAnalyzing(false);
     }

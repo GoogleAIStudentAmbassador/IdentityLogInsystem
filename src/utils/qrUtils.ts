@@ -153,6 +153,8 @@ export function createPassportShareUrl(passport: Omit<QrPassportData, 'type' | '
   if (passport.photoUrl) url.searchParams.set('photo', passport.photoUrl);
   if (passport.birthday) url.searchParams.set('bday', passport.birthday);
   if (passport.showBirthday !== undefined) url.searchParams.set('showBday', passport.showBirthday ? '1' : '0');
+  if (passport.hobbies) url.searchParams.set('hobbies', passport.hobbies);
+  if (passport.skills) url.searchParams.set('skills', passport.skills);
   if (passport.isAmbassador !== undefined) url.searchParams.set('ambassador', passport.isAmbassador ? '1' : '0');
 
   // SNSリンクを安全にコンパクトエンコード
@@ -187,6 +189,8 @@ export interface ParsedPassport {
   photoUrl?: string | null;
   birthday?: string | null;
   showBirthday?: boolean;
+  hobbies?: string | null;
+  skills?: string | null;
   isAmbassador?: boolean;
   snsLinks?: { platform: string; value: string }[];
 }
@@ -210,6 +214,10 @@ export function parsePassportQrPayload(text: string): ParsedPassport | null {
         university: data.university || '未設定',
         grade: data.grade || 'B1',
         photoUrl: data.photoUrl || null,
+        birthday: data.birthday || null,
+        showBirthday: data.showBirthday,
+        hobbies: data.hobbies || null,
+        skills: data.skills || null,
         isAmbassador: data.isAmbassador !== undefined ? Boolean(data.isAmbassador) : undefined,
       };
     }
@@ -252,6 +260,8 @@ export function parsePassportQrPayload(text: string): ParsedPassport | null {
           photoUrl: url.searchParams.get('photo') || url.searchParams.get('photo_url') || null,
           birthday: url.searchParams.get('bday') || null,
           showBirthday: url.searchParams.get('showBday') === '1',
+          hobbies: url.searchParams.get('hobbies') || null,
+          skills: url.searchParams.get('skills') || null,
           isAmbassador: url.searchParams.get('ambassador') === '1',
           snsLinks: parsedSns,
         };

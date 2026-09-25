@@ -221,6 +221,8 @@ export interface UserMoffySession {
   snsLinks?: SnsLinkItem[];
   birthday?: string;
   showBirthday?: boolean;
+  hobbies?: string;
+  skills?: string;
   isAmbassador?: boolean;
   updatedAt: string;
 }
@@ -237,6 +239,8 @@ export interface FriendItem {
   grade?: string | null;
   birthday?: string | null;
   showBirthday?: boolean;
+  hobbies?: string;
+  skills?: string;
   isAmbassador?: boolean;
   snsLinks?: SnsLinkItem[];
   addedAt: string;
@@ -253,6 +257,20 @@ export interface PersonalityQuizProgressData {
   answers: Record<number, number>;
   revealedCount: number;
   currentStep?: string;
+  updatedAt: string;
+}
+
+export interface MoffyQuizData {
+  answers: Record<number, number>;
+  traitScores: Record<'E' | 'I' | 'S' | 'N' | 'T' | 'F' | 'J' | 'P', number>;
+  mbti: MbtiType;
+  updatedAt: string;
+}
+
+export interface MoffyCustomFeatures {
+  wish: string;
+  color: string;
+  params?: CreateMoffyParams;
   updatedAt: string;
 }
 
@@ -339,6 +357,8 @@ export interface QrPassportData {
   photoUrl?: string;
   birthday?: string;
   showBirthday?: boolean;
+  hobbies?: string;
+  skills?: string;
   isAmbassador?: boolean;
   snsLinks?: SnsLinkItem[];
   timestamp: number;
