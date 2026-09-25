@@ -234,7 +234,11 @@ export const App: React.FC = () => {
       if (!userResult.university && localSession?.university) userResult.university = localSession.university;
 
       const arrangedPhoto = userResult.arranged_photo_url || localSession?.arrangedPhotoUrl || null;
-      const defaultPhoto = userResult.default_photo_url || userResult.photo_url || localSession?.defaultPhotoUrl || arrangedPhoto;
+      // 🌟 人間のアバター画像 (photo_url) をモッフィー画像として誤認識・フォールバックしないよう物理的に除外
+      const rawLocalDefault = localSession?.defaultPhotoUrl;
+      const isAvatarLeak = rawLocalDefault && (rawLocalDefault === userResult.photo_url || rawLocalDefault === authUser.photo_url);
+      const validLocalDefault = isAvatarLeak ? null : rawLocalDefault;
+      const defaultPhoto = userResult.default_photo_url || validLocalDefault || arrangedPhoto;
       const existingPhoto = arrangedPhoto || defaultPhoto;
 
       if (existingPhoto) {

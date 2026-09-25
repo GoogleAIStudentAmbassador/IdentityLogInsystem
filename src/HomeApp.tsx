@@ -10,7 +10,7 @@ import { ProfileTab } from './components/home/ProfileTab';
 import { FriendsTab } from './components/home/FriendsTab';
 import { FloatingBottomNav } from './components/home/FloatingBottomNav';
 import type { MainTab } from './components/home/FloatingBottomNav';
-import { getFriendList, getTutorialStatus, saveTutorialCompleted } from './services/api';
+import { getFriendList, getTutorialStatus, saveTutorialCompleted, getPublicProfile, getMoffyQuizData } from './services/api';
 import { getDiscordAvatarUrl, fetchDiscordAvatarBlobUrl } from './services/discordApi';
 import { TUTORIAL_STEPS } from './types';
 import { TutorialOverlay } from './components/home/TutorialOverlay';
@@ -121,15 +121,87 @@ export const HomeApp: React.FC = () => {
 
   const discordUserId = user?.discord_user_id || session?.discordUserId || '';
 
-  // 🌟 性格診断受講・モッフィー作成済み判定
+  // 🌟 DB上の回答データ存在フラグ（画像未生成でも再生成可能とするため）
+  const [hasDbQuizData, setHasDbQuizData] = useState<boolean>(false);
+
+  // 🌟 アバター画像（Discord/Googleアイコン）の誤判定除外関数
+  const isAvatarUrl = useCallback((url?: string | null): boolean => {
+    if (!url) return false;
+    if (user?.photo_url && url === user.photo_url) return true;
+    return false;
+  }, [user?.photo_url]);
+
+  // 🌟 性格診断受講・モッフィー作成済み判定（アバター誤爆を除外しDB回答データも包含）
+  const validDefaultPhoto = (!isAvatarUrl(session?.defaultPhotoUrl) ? session?.defaultPhotoUrl : null) ||
+                            (!isAvatarUrl(user?.default_photo_url) ? user?.default_photo_url : null);
   const hasMoffy = Boolean(
+    hasDbQuizData ||
     session?.mbti ||
     user?.mbti ||
+    validDefaultPhoto ||
     session?.arrangedPhotoUrl ||
-    session?.defaultPhotoUrl ||
-    user?.arranged_photo_url ||
-    user?.default_photo_url
+    user?.arranged_photo_url
   );
+
+  // 🌟 DBを真実の源泉（Single Source of Truth）としてプロフィールおよび画像状態を最新同期
+  useEffect(() => {
+    if (!discordUserId || discordUserId === 'Ambassador') return;
+    let isMounted = true;
+
+    // 1. 最新のDBプロフィールを取得し、画像の存在状況を厳格に同期
+    getPublicProfile(discordUserId)
+      .then((dbProfile) => {
+        if (!isMounted || !dbProfile) return;
+
+        const dbDefault = dbProfile.default_photo_url || null;
+        const dbArranged = dbProfile.arranged_photo_url || null;
+
+        // DB側で画像が検出されない場合、ローカルストレージに残った古いキャッシュを物理的にパージ
+        setSession((prev) => {
+          if (!prev) return prev;
+          if (prev.defaultPhotoUrl === dbDefault && prev.arrangedPhotoUrl === dbArranged) {
+            return prev;
+          }
+          const updated = {
+            ...prev,
+            defaultPhotoUrl: dbDefault,
+            arrangedPhotoUrl: dbArranged,
+          };
+          try {
+            localStorage.setItem(`moffy_user_session_${discordUserId}`, JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+
+        setUser((prev) => {
+          if (!prev) return prev;
+          if (prev.default_photo_url === dbDefault && prev.arranged_photo_url === dbArranged) {
+            return prev;
+          }
+          return {
+            ...prev,
+            default_photo_url: dbDefault,
+            arranged_photo_url: dbArranged,
+          };
+        });
+      })
+      .catch((err) => {
+        console.warn('[HomeApp] Failed to sync profile with DB:', err);
+      });
+
+    // 2. DB上に過去の回答データが存在するか確認
+    getMoffyQuizData(discordUserId)
+      .then((quizData) => {
+        if (isMounted && quizData && quizData.answers && Object.keys(quizData.answers).length > 0) {
+          setHasDbQuizData(true);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [discordUserId]);
 
   // 🌟 Discord プロフィール画像 (Blob URL 自動取得・キャッシュ)
   const [discordAvatarUrl, setDiscordAvatarUrl] = useState<string>(() => getDiscordAvatarUrl(discordUserId, 128));
@@ -410,6 +482,7 @@ export const HomeApp: React.FC = () => {
             isDarkMode={isDarkMode}
             preferredStyle={preferredStyle}
             discordAvatarUrl={discordAvatarUrl}
+            hasDbQuizData={hasDbQuizData}
             onStyleChange={handleStyleChange}
             onGoToProfile={() => setActiveTab('profile')}
           />

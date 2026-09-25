@@ -626,30 +626,52 @@ export const ShareApp: React.FC = () => {
                   </div>
                 )}
 
-                {/* 🌟 趣味・特技 */}
-                {(hobbies || skills) && (
-                  <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
+              </div>
+
+              {/* 🌟 趣味・特技（SNSリンクと統一されたカードグリッドスタイル） */}
+              {(hobbies || skills) && (
+                <div className="mt-6 pt-5 border-t border-neutral-200/60 dark:border-neutral-800 text-left">
+                  <span className={`block text-[11px] font-semibold uppercase tracking-wider mb-2.5 ${
+                    isDarkMode ? 'text-neutral-400' : 'text-neutral-500'
+                  }`}>
+                    Hobbies & Skills
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {hobbies && (
-                      <span className={`text-[11px] px-2.5 py-0.5 rounded-full border ${
-                        isDarkMode
-                          ? 'border-neutral-700 bg-neutral-800/80 text-neutral-300'
-                          : 'border-neutral-200 bg-neutral-100 text-neutral-700'
-                      }`}>
-                        趣味: {hobbies}
-                      </span>
+                      <div
+                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium border ${
+                          isDarkMode
+                            ? 'border-neutral-800 bg-neutral-950/60 text-neutral-200'
+                            : 'border-neutral-200 bg-neutral-50 text-neutral-700'
+                        }`}
+                      >
+                        <span className="text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 shrink-0">
+                          趣味
+                        </span>
+                        <span className="font-medium truncate ml-3 text-right text-neutral-900 dark:text-neutral-100" title={hobbies}>
+                          {hobbies}
+                        </span>
+                      </div>
                     )}
                     {skills && (
-                      <span className={`text-[11px] px-2.5 py-0.5 rounded-full border ${
-                        isDarkMode
-                          ? 'border-neutral-700 bg-neutral-800/80 text-neutral-300'
-                          : 'border-neutral-200 bg-neutral-100 text-neutral-700'
-                      }`}>
-                        特技: {skills}
-                      </span>
+                      <div
+                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium border ${
+                          isDarkMode
+                            ? 'border-neutral-800 bg-neutral-950/60 text-neutral-200'
+                            : 'border-neutral-200 bg-neutral-50 text-neutral-700'
+                        }`}
+                      >
+                        <span className="text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 shrink-0">
+                          特技
+                        </span>
+                        <span className="font-medium truncate ml-3 text-right text-neutral-900 dark:text-neutral-100" title={skills}>
+                          {skills}
+                        </span>
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* 🌟 設定したSNS（各外部リンクボタン） */}
               {snsLinks && snsLinks.length > 0 && (

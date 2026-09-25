@@ -10,6 +10,7 @@ interface PassportTabProps {
   isDarkMode: boolean;
   preferredStyle?: MoffyIconStyle;
   discordAvatarUrl?: string;
+  hasDbQuizData?: boolean;
   onStyleChange?: (style: MoffyIconStyle) => void;
   onGoToProfile?: () => void;
 }
@@ -20,21 +21,34 @@ export const PassportTab: React.FC<PassportTabProps> = ({
   isDarkMode,
   preferredStyle,
   discordAvatarUrl,
+  hasDbQuizData,
   onStyleChange,
   onGoToProfile,
 }) => {
+  // 🌟 アバター画像（Discord/Googleアイコン）の誤判定防止
+  const isAvatarUrl = (url?: string | null): boolean => {
+    if (!url) return false;
+    if (user?.photo_url && url === user.photo_url) return true;
+    if (discordAvatarUrl && url === discordAvatarUrl) return true;
+    return false;
+  };
+
+  // 🌟 メイン画像・アレンジ画像が存在するかどうかの厳格判定（アバターアイコンの漏洩を完全に除外）
+  const validDefaultPhoto = (!isAvatarUrl(session?.defaultPhotoUrl) ? session?.defaultPhotoUrl : null) ||
+                            (!isAvatarUrl(user?.default_photo_url) ? user?.default_photo_url : null);
+  const hasDefaultPhoto = Boolean(validDefaultPhoto);
+  const hasArrangedPhoto = Boolean(session?.arrangedPhotoUrl || user?.arranged_photo_url);
+
+  // 🌟 診断受講済み判定（DB回答データまたはMBTIが存在するか）
   const hasMoffy = Boolean(
+    hasDbQuizData ||
     session?.mbti ||
     user?.mbti ||
-    session?.arrangedPhotoUrl ||
-    session?.defaultPhotoUrl ||
-    user?.arranged_photo_url ||
-    user?.default_photo_url
+    hasDefaultPhoto ||
+    hasArrangedPhoto
   );
 
-  // 🌟 メイン画像・アレンジ画像が存在しないかどうかの判定
-  const hasDefaultPhoto = Boolean(session?.defaultPhotoUrl || user?.default_photo_url);
-  const hasArrangedPhoto = Boolean(session?.arrangedPhotoUrl || user?.arranged_photo_url);
+  // 🌟 メイン画像とアレンジ画像が両方とも存在しない場合に再生成カードを表示
   const isMissingImages = Boolean(hasMoffy && !hasDefaultPhoto && !hasArrangedPhoto);
 
   // 初期スタイル: preferredStyle prop, session または localStorage から復元
@@ -77,7 +91,7 @@ export const PassportTab: React.FC<PassportTabProps> = ({
     : `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`;
 
   // 画像ソースの整理（ノーマル vs 装備 vs Discord）
-  const normalImgSrc = session?.defaultPhotoUrl || user?.default_photo_url || defaultMoffyImg;
+  const normalImgSrc = validDefaultPhoto || defaultMoffyImg;
   const equippedImgSrc = session?.arrangedPhotoUrl || user?.arranged_photo_url || normalImgSrc;
   const discordImgSrc = discordAvatarUrl || user?.photo_url || '';
   const canToggle = hasMoffy;
