@@ -260,6 +260,15 @@ export const App: React.FC = () => {
         // 🌟 過去のエラー時に公式オリジナル画像等で作成された古いカードキャッシュ（クッキー）を完全破棄
         setCardDataUrl('');
         setCardBlob(null);
+        if (localSession) {
+          saveUserSession({
+            ...localSession,
+            cardDataUrl: '',
+            arrangedPhotoUrl: null,
+            defaultPhotoUrl: null,
+            preferredStyle: 'equipped',
+          });
+        }
         let restoredMbti: MbtiType = (localSession?.mbti || userResult.mbti || 'INTJ') as MbtiType;
         try {
           const quizData = await getMoffyQuizData(resolvedUserId);
@@ -661,45 +670,9 @@ export const App: React.FC = () => {
     } catch (err: unknown) {
       console.error('2-step Moffy generation error:', err);
       const msg = err instanceof Error ? err.message : 'モッフィーの生成中にエラーが発生しました';
-      setErrorMsg(`${msg}（公式モッフィー画像でカードを生成します）`);
-
-      try {
-        const { blob, dataUrl } = await generateProfileCardBlob(
-          selectedArchetype,
-          {
-            discordUserId,
-            name: regResult?.name || null,
-            lastName: regResult?.last_name || null,
-            firstName: regResult?.first_name || null,
-            nickname: regResult?.nickname || null,
-            traitScores,
-          },
-          null
-        );
-        setCardBlob(blob);
-        setCardDataUrl(dataUrl);
-        saveUserSession({
-          discordUserId,
-          name: regResult?.name || null,
-          lastName: regResult?.last_name || null,
-          firstName: regResult?.first_name || null,
-          nickname: regResult?.nickname || null,
-          mbti: selectedArchetype.mbtiCode,
-          traitScores,
-          cardDataUrl: dataUrl,
-          arrangedPhotoUrl: null,
-          defaultPhotoUrl: null,
-          grade: regResult?.grade,
-          university: regResult?.university,
-          isAmbassador: regResult?.is_ambassador !== undefined ? regResult.is_ambassador : authClient.getUser()?.is_ambassador,
-          updatedAt: new Date().toISOString(),
-        });
-        setIsLoadingEnding(true);
-      } catch (fallbackErr) {
-        console.error('Fallback card generation also failed:', fallbackErr);
-        setIsLoadingEnding(false);
-        setStage('customize');
-      }
+      setErrorMsg(`${msg}。もう一度お試しください。`);
+      setIsLoadingEnding(false);
+      setStage('customize');
     }
   };
 

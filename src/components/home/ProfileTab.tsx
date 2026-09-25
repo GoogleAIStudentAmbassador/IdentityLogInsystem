@@ -155,6 +155,11 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
     // 🌟 未受講ユーザーの場合はカード生成を行わない
     if (!hasMoffy) return;
 
+    // 🌟 既存のパートナーカードがセッションに存在する場合は不要な再生成・上書きをスキップ
+    if (session?.cardDataUrl) {
+      return;
+    }
+
     let isMounted = true;
 
     async function generateCard() {

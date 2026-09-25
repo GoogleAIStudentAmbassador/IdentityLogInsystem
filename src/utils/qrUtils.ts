@@ -47,44 +47,46 @@ export async function generateMoffyQrDataUrl(text: string, moffyImageUrl?: strin
       return canvas.toDataURL('image/png');
     }
 
-    // モッフィー画像のロード（ローカル・リモート両対応）
+    // モッフィー画像の安全なロード（キャッシュバスター＆プロキシ対応でCanvas汚染を完全防止）
+    let safeImgSrc = moffyImageUrl;
+    if (moffyImageUrl.startsWith('http://') || moffyImageUrl.startsWith('https://')) {
+      try {
+        let fetchUrl = moffyImageUrl;
+        if (import.meta.env.DEV && moffyImageUrl.startsWith('https://firebasestorage.googleapis.com')) {
+          fetchUrl = moffyImageUrl.replace('https://firebasestorage.googleapis.com', '/firebase-storage');
+        }
+        const sep = fetchUrl.includes('?') ? '&' : '?';
+        const cbUrl = `${fetchUrl}${sep}_moffy_qr_cb=${Date.now()}`;
+        const res = await fetch(cbUrl, { mode: 'cors' });
+        if (res.ok) {
+          const blob = await res.blob();
+          safeImgSrc = URL.createObjectURL(blob);
+        }
+      } catch {
+        // 直接取得失敗時はプロキシ試行
+        try {
+          const cleanUrl = moffyImageUrl.split('?')[0];
+          const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(cleanUrl)}`;
+          const proxyRes = await fetch(proxyUrl, { mode: 'cors' });
+          if (proxyRes.ok) {
+            const blob = await proxyRes.blob();
+            safeImgSrc = URL.createObjectURL(blob);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     const img = new Image();
-    const isRemote = moffyImageUrl.startsWith('http://') || moffyImageUrl.startsWith('https://');
-    if (isRemote) {
+    if (!safeImgSrc.startsWith('blob:') && !safeImgSrc.startsWith('data:')) {
       img.crossOrigin = 'anonymous';
     }
 
     await new Promise<void>((resolve) => {
-      let isDone = false;
-      img.onload = () => {
-        if (!isDone) {
-          isDone = true;
-          resolve();
-        }
-      };
-      img.onerror = () => {
-        if (!isDone) {
-          isDone = true;
-          // crossOrigin付きで失敗した場合、crossOriginなしで再試行
-          if (img.crossOrigin) {
-            const retryImg = new Image();
-            retryImg.onload = () => {
-              try {
-                // retryImgが読み込めたらimgを差し替え
-                Object.assign(img, retryImg);
-              } catch {
-                // ignore
-              }
-              resolve();
-            };
-            retryImg.onerror = () => resolve();
-            retryImg.src = moffyImageUrl;
-          } else {
-            resolve();
-          }
-        }
-      };
-      img.src = moffyImageUrl;
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
+      img.src = safeImgSrc;
     });
 
     if (img.complete && img.naturalWidth > 0) {

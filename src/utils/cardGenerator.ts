@@ -11,6 +11,78 @@ export interface CardUserInfo {
 }
 
 /**
+ * 画像（Blob, DataURL, または外部URL）を安全にHTMLImageElementとしてロードします。
+ * 外部URLの場合、ブラウザのCORSキャッシュ汚染（no-cors キャッシュの誤用）を防ぐため
+ * キャッシュバスターを付与してBlobフェッチし、Object URLまたはDataURLに変換してからImageにロードすることで、
+ * CanvasのTainted（汚染）および img.crossOrigin='anonymous' の拒絶を物理的に完全防止します。
+ */
+async function loadSafeImage(src: string | Blob): Promise<HTMLImageElement> {
+  let objectUrl: string | null = null;
+  let finalSrc = '';
+
+  if (src instanceof Blob) {
+    objectUrl = URL.createObjectURL(src);
+    finalSrc = objectUrl;
+  } else if (typeof src === 'string' && src.trim()) {
+    if (src.startsWith('data:') || src.startsWith('blob:')) {
+      finalSrc = src;
+    } else {
+      // 外部URLの場合: ブラウザのCORSキャッシュ汚染を防ぐためキャッシュバスター付きでフェッチ
+      let loadedBlob: Blob | null = null;
+      try {
+        let fetchUrl = src;
+        if (import.meta.env.DEV && src.startsWith('https://firebasestorage.googleapis.com')) {
+          fetchUrl = src.replace('https://firebasestorage.googleapis.com', '/firebase-storage');
+        }
+        const sep = fetchUrl.includes('?') ? '&' : '?';
+        const cbUrl = `${fetchUrl}${sep}_moffy_cb=${Date.now()}`;
+        const res = await fetch(cbUrl, { mode: 'cors' });
+        if (res.ok) {
+          loadedBlob = await res.blob();
+        }
+      } catch (err) {
+        console.warn('[loadSafeImage] Direct fetch with cache-buster failed:', err);
+      }
+
+      // 直接フェッチが失敗した場合は CORS プロキシ（images.weserv.nl）を試行
+      if (!loadedBlob && (src.startsWith('http://') || src.startsWith('https://'))) {
+        try {
+          const cleanUrl = src.split('?')[0];
+          const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(cleanUrl)}`;
+          const proxyRes = await fetch(proxyUrl, { mode: 'cors' });
+          if (proxyRes.ok) {
+            loadedBlob = await proxyRes.blob();
+          }
+        } catch (proxyErr) {
+          console.warn('[loadSafeImage] Proxy fetch failed:', proxyErr);
+        }
+      }
+
+      if (loadedBlob) {
+        objectUrl = URL.createObjectURL(loadedBlob);
+        finalSrc = objectUrl;
+      } else {
+        finalSrc = src;
+      }
+    }
+  }
+
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    if (!finalSrc.startsWith('blob:') && !finalSrc.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
+    img.onload = () => {
+      resolve(img);
+    };
+    img.onerror = () => {
+      reject(new Error(`Failed to load image: ${src}`));
+    };
+    img.src = finalSrc;
+  });
+}
+
+/**
  * 診断結果(16タイプのモッフィー)とユーザー情報をもとに、
  * Canvas上でアンバサダー自身とパートナーモッフィーを象徴する公式パートナーカード(800x1000)を動的描画し、
  * PNG Blobとして返却します。
@@ -36,6 +108,8 @@ async function renderProfileCardInternal(
   if (!ctx) {
     throw new Error('Canvas 2D context not available');
   }
+
+  const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
 
   // 1. 背景グラデーション（深宇宙からモッフィーのテーマカラーへ）
   const bgGrad = ctx.createLinearGradient(0, 0, 800, 1000);
@@ -117,86 +191,79 @@ async function renderProfileCardInternal(
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // カスタム画像がある場合はBlob URL化してCanvasのCORS汚染を防止
-  let customBlobUrl: string | null = null;
-  if (customImage instanceof Blob) {
-    customBlobUrl = URL.createObjectURL(customImage);
-  } else if (typeof customImage === 'string' && customImage.trim()) {
-    if (customImage.startsWith('data:') || customImage.startsWith('blob:')) {
-      customBlobUrl = customImage;
-    } else {
-      let loadedBlob: Blob | null = null;
-      try {
-        let fetchUrl = customImage;
-        if (import.meta.env.DEV && customImage.startsWith('https://firebasestorage.googleapis.com')) {
-          fetchUrl = customImage.replace('https://firebasestorage.googleapis.com', '/firebase-storage');
-        }
-        const res = await fetch(fetchUrl, { mode: 'cors' });
-        if (res.ok) {
-          loadedBlob = await res.blob();
-        }
-      } catch (err) {
-        console.warn('Direct image fetch failed:', err);
-      }
+  // 🌟 モッフィー画像のロード（ユーザーの生成モッフィー画像が指定されている場合は公式オリジナルへの誤すり替えを完全阻止）
+  let imageLoaded = false;
+  let customImgElement: HTMLImageElement | null = null;
 
-      if (loadedBlob) {
-        customBlobUrl = URL.createObjectURL(loadedBlob);
-      } else {
-        // サードパーティプロキシへの通信依存を排除し、直接URLを利用
-        customBlobUrl = customImage;
-      }
+  if (customImage) {
+    try {
+      customImgElement = await loadSafeImage(customImage);
+    } catch (err) {
+      console.warn('Failed to load custom image for partner card:', err);
     }
   }
 
-  // 公式AI画像またはユーザーモッフィー画像の読み込み試行
-  let imageLoaded = false;
-  const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
-  const imageSources = [
-    customBlobUrl,
-    `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`,
-    archetype.officialImageUrl?.startsWith('/')
-      ? `${baseUrl}${archetype.officialImageUrl.slice(1)}`
-      : archetype.officialImageUrl,
-  ].filter(Boolean) as string[];
+  if (customImgElement) {
+    // 🌟 生成モッフィー画像を確実に描画
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, imgRadius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(customImgElement, centerX - imgRadius, centerY - imgRadius, imgRadius * 2, imgRadius * 2);
+    ctx.restore();
 
-  for (const src of imageSources) {
-    try {
-      const img = new Image();
-      if (!src.startsWith('blob:') && !src.startsWith('data:')) {
-        img.crossOrigin = 'anonymous';
+    // 円形リング枠線
+    ctx.strokeStyle = archetype.accentColor;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, imgRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 内側の繊細なガラス反射リング
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, imgRadius - 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    imageLoaded = true;
+  } else if (!customImage) {
+    // 🌟 customImage が明示的に未指定の場合のみ公式オリジナルアセットを描画
+    const baseUrl = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
+    const officialSources = [
+      `${baseUrl}moffies/${archetype.mbtiCode.toLowerCase()}.jpg`,
+      archetype.officialImageUrl?.startsWith('/')
+        ? `${baseUrl}${archetype.officialImageUrl.slice(1)}`
+        : archetype.officialImageUrl,
+    ].filter(Boolean) as string[];
+
+    for (const src of officialSources) {
+      try {
+        const officialImg = await loadSafeImage(src);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, imgRadius, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(officialImg, centerX - imgRadius, centerY - imgRadius, imgRadius * 2, imgRadius * 2);
+        ctx.restore();
+
+        ctx.strokeStyle = archetype.accentColor;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, imgRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, imgRadius - 4, 0, Math.PI * 2);
+        ctx.stroke();
+
+        imageLoaded = true;
+        break;
+      } catch {
+        // 次のソースを試行
       }
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error(`Failed to load ${src}`));
-        img.src = src;
-      });
-
-      // 円形クリッピングでAIイラストを描画
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, imgRadius, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(img, centerX - imgRadius, centerY - imgRadius, imgRadius * 2, imgRadius * 2);
-      ctx.restore();
-
-      // 円形リング枠線
-      ctx.strokeStyle = archetype.accentColor;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, imgRadius, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // 内側の繊細なガラス反射リング
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, imgRadius - 4, 0, Math.PI * 2);
-      ctx.stroke();
-
-      imageLoaded = true;
-      break;
-    } catch {
-      // 次のソースを試行
     }
   }
 
@@ -521,16 +588,6 @@ export async function generateProfileCardBlob(
           traitScores: legacyUserInfo?.traitScores,
         };
 
-  try {
-    return await renderProfileCardInternal(archetype, userInfo, customImage);
-  } catch (err) {
-    console.warn('Card generation failed with custom image (possible CORS/Tainted Canvas). Falling back to official archetype asset:', err);
-    try {
-      return await renderProfileCardInternal(archetype, userInfo, null);
-    } catch (fallbackErr) {
-      console.error('Fatal: even official fallback card generation failed:', fallbackErr);
-      throw fallbackErr;
-    }
-  }
+  return await renderProfileCardInternal(archetype, userInfo, customImage);
 }
 
