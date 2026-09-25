@@ -80,14 +80,20 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   }, [discordId, propDiscordAvatarUrl]);
 
   // 選択されたスタイル（preferredStyle）に応じたカード描画用画像
+  const hasCustomEquipped = Boolean(session?.arrangedPhotoUrl || user?.arranged_photo_url);
+  const hasCustomDefault = Boolean(session?.defaultPhotoUrl || user?.default_photo_url);
+
   const normalPhoto = session?.defaultPhotoUrl || user?.default_photo_url || archetype.officialImageUrl;
   const equippedPhoto = session?.arrangedPhotoUrl || user?.arranged_photo_url || normalPhoto;
   const discordPhoto = discordAvatarUrl || getDiscordAvatarUrl(discordId, 256);
 
+  // 🌟 パートナーカード描画用画像の厳格決定（生成モッフィー画像が存在する場合は公式オリジナルへの誤フォールバックを完全阻止）
   const activePhotoUrl = (() => {
     if (preferredStyle === 'discord') return discordPhoto;
-    if (preferredStyle === 'normal') return normalPhoto;
-    return equippedPhoto;
+    if (preferredStyle === 'normal' && hasCustomDefault) return normalPhoto;
+    if (hasCustomEquipped) return equippedPhoto;
+    if (hasCustomDefault) return normalPhoto;
+    return archetype.officialImageUrl;
   })();
 
   const [cardDataUrl, setCardDataUrl] = useState<string | null>(() => (hasMoffy ? session?.cardDataUrl || null : null));

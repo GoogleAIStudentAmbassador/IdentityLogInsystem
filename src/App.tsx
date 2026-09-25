@@ -257,6 +257,9 @@ export const App: React.FC = () => {
 
       // 🌟 再生成モード: 性格診断の回答データ・特徴データを復元し、質問をスキップして直接カスタマイズ画面へ
       if (isRegenerate) {
+        // 🌟 過去のエラー時に公式オリジナル画像等で作成された古いカードキャッシュ（クッキー）を完全破棄
+        setCardDataUrl('');
+        setCardBlob(null);
         let restoredMbti: MbtiType = (localSession?.mbti || userResult.mbti || 'INTJ') as MbtiType;
         try {
           const quizData = await getMoffyQuizData(resolvedUserId);
@@ -626,11 +629,26 @@ export const App: React.FC = () => {
         cardDataUrl: dataUrl,
         arrangedPhotoUrl: editRes.image_url,
         defaultPhotoUrl: createRes.image_url,
+        preferredStyle: 'equipped',
         grade: regResult?.grade,
         university: regResult?.university,
         isAmbassador: regResult?.is_ambassador !== undefined ? regResult.is_ambassador : authClient.getUser()?.is_ambassador,
         updatedAt: new Date().toISOString(),
       });
+
+      try {
+        localStorage.setItem('moffy_preferred_style', 'equipped');
+      } catch {
+        // ignore
+      }
+
+      if (regResult) {
+        setRegResult({
+          ...regResult,
+          arranged_photo_url: editRes.image_url,
+          default_photo_url: createRes.image_url,
+        });
+      }
 
       if (discordUserId) {
         saveGameProgress('moffy_personality_result', discordUserId, {

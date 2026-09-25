@@ -628,82 +628,74 @@ export const ShareApp: React.FC = () => {
 
               </div>
 
-              {/* 🌟 趣味・特技（SNSリンクと統一されたカードグリッドスタイル） */}
-              {(hobbies || skills) && (
-                <div className="mt-6 pt-5 border-t border-neutral-200/60 dark:border-neutral-800 text-left">
-                  <span className={`block text-[11px] font-semibold uppercase tracking-wider mb-2.5 ${
-                    isDarkMode ? 'text-neutral-400' : 'text-neutral-500'
-                  }`}>
-                    Hobbies & Skills
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {hobbies && (
-                      <div
-                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium border ${
-                          isDarkMode
-                            ? 'border-neutral-800 bg-neutral-950/60 text-neutral-200'
-                            : 'border-neutral-200 bg-neutral-50 text-neutral-700'
-                        }`}
-                      >
-                        <span className="text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 shrink-0">
-                          趣味
-                        </span>
-                        <span className="font-medium truncate ml-3 text-right text-neutral-900 dark:text-neutral-100" title={hobbies}>
-                          {hobbies}
-                        </span>
-                      </div>
-                    )}
-                    {skills && (
-                      <div
-                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium border ${
-                          isDarkMode
-                            ? 'border-neutral-800 bg-neutral-950/60 text-neutral-200'
-                            : 'border-neutral-200 bg-neutral-50 text-neutral-700'
-                        }`}
-                      >
-                        <span className="text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 shrink-0">
-                          特技
-                        </span>
-                        <span className="font-medium truncate ml-3 text-right text-neutral-900 dark:text-neutral-100" title={skills}>
-                          {skills}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              {/* 🌟 趣味・特技・SNS セクション (ユーザー要望の縦積みリストレイアウト) */}
+              {(hobbies || skills || (snsLinks && snsLinks.length > 0)) && (
+                <div className="mt-6 text-left space-y-3.5">
+                  {/* 趣味 */}
+                  {hobbies && (
+                    <div className="border-t border-neutral-200/60 dark:border-neutral-800 pt-3">
+                      <span className={`block text-[11px] font-semibold uppercase tracking-wider mb-1 ${
+                        isDarkMode ? 'text-neutral-400' : 'text-neutral-500'
+                      }`}>
+                        趣味
+                      </span>
+                      <p className={`text-sm font-medium leading-relaxed ${
+                        isDarkMode ? 'text-neutral-100' : 'text-neutral-900'
+                      }`}>
+                        {hobbies}
+                      </p>
+                    </div>
+                  )}
 
-              {/* 🌟 設定したSNS（各外部リンクボタン） */}
-              {snsLinks && snsLinks.length > 0 && (
-                <div className="mt-6 pt-5 border-t border-neutral-200/60 dark:border-neutral-800">
-                  <span className={`block text-[11px] font-semibold uppercase tracking-wider mb-2.5 ${
-                    isDarkMode ? 'text-neutral-400' : 'text-neutral-500'
-                  }`}>
-                    Social Links
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {snsLinks.map((sns, index) => {
-                      const resolvedUrl = resolveSnsUrl(sns.platform, sns.value);
-                      if (!resolvedUrl) return null;
+                  {/* 特技 */}
+                  {skills && (
+                    <div className="border-t border-neutral-200/60 dark:border-neutral-800 pt-3">
+                      <span className={`block text-[11px] font-semibold uppercase tracking-wider mb-1 ${
+                        isDarkMode ? 'text-neutral-400' : 'text-neutral-500'
+                      }`}>
+                        特技
+                      </span>
+                      <p className={`text-sm font-medium leading-relaxed ${
+                        isDarkMode ? 'text-neutral-100' : 'text-neutral-900'
+                      }`}>
+                        {skills}
+                      </p>
+                    </div>
+                  )}
 
-                      return (
-                        <a
-                          key={`${sns.id || index}`}
-                          href={resolvedUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition border cursor-pointer ${
-                            isDarkMode
-                              ? 'border-neutral-800 bg-neutral-950/60 hover:bg-neutral-800 hover:text-white text-neutral-200'
-                              : 'border-neutral-200 bg-neutral-50 hover:bg-neutral-100 hover:text-neutral-900 text-neutral-700'
-                          }`}
-                        >
-                          <span className="capitalize font-semibold">{sns.platform}</span>
-                          <ExternalLink className="w-3.5 h-3.5 opacity-60" />
-                        </a>
-                      );
-                    })}
-                  </div>
+                  {/* SNS */}
+                  {snsLinks && snsLinks.length > 0 && (
+                    <div className="border-t border-neutral-200/60 dark:border-neutral-800 pt-3">
+                      <span className={`block text-[11px] font-semibold uppercase tracking-wider mb-2 ${
+                        isDarkMode ? 'text-neutral-400' : 'text-neutral-500'
+                      }`}>
+                        SNS
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {snsLinks.map((sns, index) => {
+                          const resolvedUrl = resolveSnsUrl(sns.platform, sns.value);
+                          if (!resolvedUrl) return null;
+
+                          return (
+                            <a
+                              key={`${sns.id || index}`}
+                              href={resolvedUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition border cursor-pointer ${
+                                isDarkMode
+                                  ? 'border-neutral-800 bg-neutral-900 hover:bg-neutral-800 hover:text-white text-neutral-200'
+                                  : 'border-neutral-200 bg-neutral-100 hover:bg-neutral-200 hover:text-neutral-900 text-neutral-700'
+                              }`}
+                            >
+                              <span className="capitalize">{sns.platform}</span>
+                              <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -837,7 +829,9 @@ export const ShareApp: React.FC = () => {
               </div>
 
               {/* 「トークテーマ！」見出し（文字アニメーションで出現） */}
-              <h2 className="text-xl sm:text-2xl font-black tracking-tight text-neutral-900 dark:text-neutral-100 animate-fade-in mb-4">
+              <h2 className={`text-xl sm:text-2xl font-black tracking-tight animate-fade-in mb-4 ${
+                isDarkMode ? 'text-neutral-100' : 'text-neutral-900'
+              }`}>
                 トークテーマ！
               </h2>
 
@@ -846,13 +840,21 @@ export const ShareApp: React.FC = () => {
                 {isLoadingTopic ? (
                   <div className="flex flex-col items-center justify-center gap-2 py-4">
                     <div className="w-6 h-6 border-2 border-neutral-300 border-t-[#4285f4] rounded-full animate-spin" />
-                    <span className="text-xs text-neutral-400 font-medium">相性を分析中...</span>
+                    <span className={`text-xs font-medium ${
+                      isDarkMode ? 'text-neutral-400' : 'text-neutral-500'
+                    }`}>
+                      相性を分析中...
+                    </span>
                   </div>
                 ) : (
-                  <p className="text-base sm:text-lg font-medium leading-relaxed tracking-normal text-neutral-800 dark:text-neutral-200 max-w-sm mx-auto">
+                  <p className={`text-base sm:text-lg font-medium leading-relaxed tracking-normal max-w-sm mx-auto ${
+                    isDarkMode ? 'text-neutral-100' : 'text-neutral-800'
+                  }`}>
                     {displayedTopic}
                     {isTyping && (
-                      <span className="inline-block w-0.5 h-5 ml-1 bg-[#4285f4] dark:bg-[#8ab4f8] animate-pulse align-middle" />
+                      <span className={`inline-block w-0.5 h-5 ml-1 animate-pulse align-middle ${
+                        isDarkMode ? 'bg-[#8ab4f8]' : 'bg-[#4285f4]'
+                      }`} />
                     )}
                   </p>
                 )}
@@ -860,7 +862,9 @@ export const ShareApp: React.FC = () => {
 
               {/* スキップ案内（タイピング中のみ） */}
               {isTyping && (
-                <div className="mt-3 text-[10px] text-neutral-400 dark:text-neutral-500">
+                <div className={`mt-3 text-[10px] ${
+                  isDarkMode ? 'text-neutral-400' : 'text-neutral-500'
+                }`}>
                   タップで全表示
                 </div>
               )}
@@ -874,7 +878,11 @@ export const ShareApp: React.FC = () => {
             >
               <a
                 href="./home.html?tab=dex"
-                className="w-full min-h-[50px] py-3.5 px-6 rounded-2xl font-bold text-sm text-white flex items-center justify-center gap-2 transition cursor-pointer shadow-lg hover:opacity-95 active:scale-[0.98] bg-neutral-900 dark:bg-neutral-100 dark:text-neutral-950"
+                className={`w-full min-h-[50px] py-3.5 px-6 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg hover:opacity-95 active:scale-[0.98] ${
+                  isDarkMode
+                    ? 'bg-neutral-100 text-neutral-950'
+                    : 'bg-neutral-900 text-white'
+                }`}
               >
                 <span>次へ</span>
                 <ArrowRight className="w-4 h-4" />
