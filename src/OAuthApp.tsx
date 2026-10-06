@@ -12,7 +12,7 @@ import {
   extractMbtiFromUrl,
 } from './services/api';
 import type { RegistrationResult } from './types';
-import { isAllowedRedirectUri, generateRandomState } from './utils/oauthClient';
+import { validateRedirectUri, generateRandomState } from './utils/oauthClient';
 import {
   verifyDiscordUser,
   startDiscord2FaAuth,
@@ -66,10 +66,17 @@ function parseOAuthParams(): OAuthParams {
 
 export const OAuthApp: React.FC = () => {
   const oauthParams = useMemo(() => parseOAuthParams(), []);
-  const isRedirectUriValid = useMemo(
-    () => isAllowedRedirectUri(oauthParams.redirectUri),
+  const redirectValidation = useMemo(
+    () => validateRedirectUri(oauthParams.redirectUri),
     [oauthParams.redirectUri]
   );
+
+  // 未知の外部独自ドメインに対する認可承諾ステート
+  const [pendingConsent, setPendingConsent] = useState<{
+    user: RegistrationResult;
+    token?: string | null;
+  } | null>(null);
+
   const [apiStatus, setApiStatus] = useState<{
     authenticated: boolean;
     name: string;
@@ -104,8 +111,20 @@ export const OAuthApp: React.FC = () => {
     isSubmittingRef.current = isSubmitting;
   }, [isSubmitting]);
 
-  // 初期ロード時のヘルスチェック
+  // 初期ロード時のヘルスチェック & Clickjacking 防御 (Framebusting)
   useEffect(() => {
+    // 🌟 CWE-1021 防御: iframe による透明オーバーレイ・クリックジャッキングを物理的に遮断
+    if (typeof window !== 'undefined' && window.self !== window.top) {
+      try {
+        if (window.top) {
+          window.top.location.href = window.self.location.href;
+        }
+      } catch {
+        document.body.style.display = 'none';
+        throw new Error('Clickjacking protection: Embedding in an iframe is forbidden.');
+      }
+    }
+
     checkApiHealth().then((status) => {
       setApiStatus(status);
     }).catch(() => {
@@ -114,15 +133,9 @@ export const OAuthApp: React.FC = () => {
   }, []);
 
   /**
-   * 認証完了後の安全なリダイレクト処理 (URLフラグメントによるトークン・ユーザー情報の返却)
+   * 実際のリダイレクト処理（URLフラグメントの付与と安全な画面遷移）
    */
-  const handleAuthSuccess = useCallback((user: RegistrationResult, token?: string | null) => {
-    if (!isAllowedRedirectUri(oauthParams.redirectUri)) {
-      setErrorMsg('セキュリティ保護のため、未許可のドメインへのリダイレクトは遮断されました。');
-      setIsSubmitting(false);
-      return;
-    }
-
+  const executeRedirect = useCallback((user: RegistrationResult, token?: string | null) => {
     setIsRedirecting(true);
 
     try {
@@ -172,6 +185,50 @@ export const OAuthApp: React.FC = () => {
       setErrorMsg('リダイレクトURLの構築に失敗しました。');
       setIsRedirecting(false);
       setIsSubmitting(false);
+    }
+  }, [oauthParams]);
+
+  /**
+   * 認証完了ハンドラ:
+   * 1. 'rejected': 危険なスキームを遮断
+   * 2. 'requires_consent': 外部独自ドメインへのユーザー明示的同意画面を表示
+   * 3. 'trusted': 自動即時リダイレクト
+   */
+  const handleAuthSuccess = useCallback((user: RegistrationResult, token?: string | null) => {
+    if (redirectValidation.status === 'rejected') {
+      setErrorMsg(redirectValidation.reason || 'セキュリティ保護のため、無効なリダイレクト先への遷移は遮断されました。');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (redirectValidation.status === 'requires_consent') {
+      setIsSubmitting(false);
+      setPendingConsent({ user, token });
+      return;
+    }
+
+    // 'trusted' (localhost, *.github.io, *.ac.jp, ホワイトリスト等) は即時リダイレクト
+    executeRedirect(user, token);
+  }, [redirectValidation, executeRedirect]);
+
+  /**
+   * RFC 6749 Section 4.2.2.1 準拠: ユーザーが連携を拒否した場合の安全なエラー返却
+   */
+  const handleDenyConsent = useCallback(() => {
+    try {
+      const returnUrl = new URL(oauthParams.redirectUri, window.location.href);
+      const fragmentParams = new URLSearchParams();
+      fragmentParams.set('error', 'access_denied');
+      fragmentParams.set('error_description', 'User denied authorization request');
+      if (oauthParams.state) {
+        fragmentParams.set('state', oauthParams.state);
+      }
+      returnUrl.hash = fragmentParams.toString();
+      window.location.replace(returnUrl.toString());
+    } catch {
+      setPendingConsent(null);
+      setIsSubmitting(false);
+      isSubmittingRef.current = false;
     }
   }, [oauthParams]);
 
@@ -255,6 +312,7 @@ export const OAuthApp: React.FC = () => {
    */
   const handleGoogleSignIn = useCallback(async (credential: string) => {
     if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     setErrorMsg(null);
 
@@ -268,6 +326,7 @@ export const OAuthApp: React.FC = () => {
           email: res.google_email || '',
           name: res.google_name || '',
         });
+        isSubmittingRef.current = false;
         setIsSubmitting(false);
         return;
       }
@@ -330,6 +389,7 @@ export const OAuthApp: React.FC = () => {
       console.error('Google login error:', err);
       const message = err instanceof Error ? err.message : 'Googleログインに失敗しました';
       setErrorMsg(message);
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   }, [handleAuthSuccess]);
@@ -542,15 +602,16 @@ export const OAuthApp: React.FC = () => {
       <Header apiStatus={apiStatus} isDark={true} />
 
 
-      {/* Open Redirector 遮断警告 */}
-      {!isRedirectUriValid && (
+      {/* 危険なリダイレクト先のみ遮断警告を表示 */}
+      {redirectValidation.status === 'rejected' && (
         <div className="w-full max-w-xl mx-auto px-4 mt-4">
           <div className="p-4 bg-red-950/60 border border-red-500/50 rounded-2xl text-red-200 text-xs flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-red-300 mb-1">未承認のリダイレクト先が指定されました</p>
+              <p className="font-bold text-red-300 mb-1">無効または安全性が確認できないリダイレクト先です</p>
               <p className="leading-relaxed">
-                指定されたリダイレクト先 (<span className="font-mono underline">{oauthParams.redirectUri}</span>) はセキュリティポリシーにより許可されていません。フィッシングや不正アクセスの防止のため認証を中止します。
+                指定されたリダイレクト先 (<span className="font-mono underline">{oauthParams.redirectUri}</span>) は安全基準を満たしていません。
+                {redirectValidation.reason && <span className="block mt-1 text-red-300">{redirectValidation.reason}</span>}
               </p>
             </div>
           </div>
@@ -582,8 +643,96 @@ export const OAuthApp: React.FC = () => {
 
       {/* メインフォーム */}
       <main className="flex-1 flex flex-col justify-center">
-        {isRedirectUriValid ? (
-          pending2FaAuth ? (
+        {redirectValidation.status !== 'rejected' ? (
+          pendingConsent ? (
+            /* 🌟 外部アプリケーション連携の認可承諾画面 (OAuth Consent Screen) */
+            <div className="w-full max-w-sm mx-auto px-4 py-8 animate-fade-in">
+              <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-5 text-neutral-100 shadow-2xl">
+                <div className="text-center">
+                  <div className="w-12 h-12 mx-auto rounded-full bg-google-blue/10 border border-google-blue/30 flex items-center justify-center mb-3">
+                    <ExternalLink className="w-6 h-6 text-google-blue" />
+                  </div>
+                  <h2 className="text-lg font-bold text-white tracking-tight">
+                    外部サービスへの連携確認
+                  </h2>
+                  <p className="mt-1 text-xs text-neutral-400 leading-relaxed">
+                    以下の外部アプリケーションがあなたのアカウント情報へのアクセスを要求しています。
+                  </p>
+                </div>
+
+                {/* 連携先アプリケーション詳細 */}
+                <div className="p-3.5 bg-neutral-950 rounded-xl border border-neutral-800 text-xs space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-neutral-400">連携先アプリ</span>
+                    <span className="font-semibold text-white break-all text-right max-w-[180px]">
+                      {oauthParams.clientId}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1 border-t border-neutral-800/60 pt-2">
+                    <span className="text-neutral-400">移動先ドメイン</span>
+                    <span className="font-mono text-emerald-400 font-semibold text-xs break-all bg-emerald-950/30 px-2.5 py-1.5 rounded-lg border border-emerald-800/40">
+                      {redirectValidation.origin}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 提供されるプロファイル情報 */}
+                <div className="space-y-1.5 text-xs">
+                  <span className="text-[11px] font-medium text-neutral-400 uppercase tracking-wider block">
+                    提供される情報
+                  </span>
+                  <ul className="space-y-1 text-neutral-300 text-[11px]">
+                    <li className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Discord ID (@{pendingConsent.user.discord_user_id})</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>氏名 / 所属 ({pendingConsent.user.university || '未設定'})</span>
+                    </li>
+                    {pendingConsent.user.mbti && (
+                      <li className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>パートナーモッフィー ({pendingConsent.user.mbti})</span>
+                      </li>
+                    )}
+                  </ul>
+                </div>
+
+                {/* アクションボタン */}
+                <div className="space-y-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => executeRedirect(pendingConsent.user, pendingConsent.token)}
+                    className="w-full min-h-[44px] rounded-xl bg-google-blue hover:bg-blue-600 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  >
+                    <span>連携を許可して移動</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDenyConsent}
+                    className="w-full min-h-[38px] rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-neutral-700/60"
+                  >
+                    <span>連携を拒否して戻る</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingConsent(null);
+                      setIsSubmitting(false);
+                      isSubmittingRef.current = false;
+                    }}
+                    className="w-full py-2 text-neutral-500 hover:text-neutral-300 text-[11px] transition-colors flex items-center justify-center cursor-pointer"
+                  >
+                    ログイン画面に戻る
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : pending2FaAuth ? (
             <div className="w-full max-w-sm mx-auto px-4 py-8 animate-fade-in">
               <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-5 text-neutral-100 shadow-xl">
                 {/* ヘッダー */}

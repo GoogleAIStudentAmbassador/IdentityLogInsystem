@@ -58,48 +58,131 @@ export function getDefaultAuthUrl(): string {
 
 const DEFAULT_STORAGE_PREFIX = 'moffy_oauth_';
 
+export type RedirectUriValidationStatus = 'trusted' | 'requires_consent' | 'rejected';
+
+export interface RedirectUriValidationResult {
+  status: RedirectUriValidationStatus;
+  origin: string;
+  hostname: string;
+  reason?: string;
+}
+
 /**
- * 許可されたリダイレクト先オリジン判定（Open Redirector 防御）
+ * オープンスケール対応の OAuth 2.0 リダイレクト先バリデーション
+ * 
+ * 1. 'trusted':
+ *    - 同一オリジン (window.location.origin)
+ *    - ローカル開発環境 (localhost, 127.0.0.1)
+ *    - Tailscale 開発ネットワーク (100.*)
+ *    - GitHub Pages (*.github.io - 世界中の学生アンバサダー・オープンソース開発者のポートフォリオやアプリ)
+ *    - 大学・研究機関ドメイン (*.ac.jp)
+ *    - ホワイトリスト登録済みオリジン (VITE_ALLOWED_REDIRECT_ORIGINS, takafumi06.github.io 等)
+ *    => 確認ダイアログなしで即座に自動リダイレクト
+ * 
+ * 2. 'requires_consent':
+ *    - 構文的に正当な HTTPS 外部独自ドメイン (例: https://my-custom-app.com/cb)
+ *    => 遮断せず、ユーザーに「外部アプリケーション連携の確認」画面を提示して明示的同意を得た上でリダイレクト
+ * 
+ * 3. 'rejected':
+ *    - 危険なスキーム (javascript:, data:, vbscript:, file: 等)
+ *    - localhost 以外の非暗号化平文 HTTP (トークン平文漏洩の防止)
+ *    - 不正な URL フォーマット
+ *    => セキュリティ保護のため物理的に即時遮断
  */
-export function isAllowedRedirectUri(targetUri: string, additionalOrigins: string[] = []): boolean {
-  if (!targetUri || typeof targetUri !== 'string') return false;
+export function validateRedirectUri(targetUri: string, additionalOrigins: string[] = []): RedirectUriValidationResult {
+  if (!targetUri || typeof targetUri !== 'string') {
+    return { status: 'rejected', origin: '', hostname: '', reason: 'リダイレクト先URIが指定されていません。' };
+  }
 
   try {
-    const parsed = new URL(targetUri, window.location.href);
+    // 0. 絶対URIまたは明示的な相対パスの検査 (RFC 6749 Section 3.1.2: 絶対URI準拠)
+    let parsed: URL;
+    try {
+      parsed = new URL(targetUri);
+    } catch {
+      // 明示的な相対パス ('/', './', '../') の場合のみ、同一オリジン内のパスとして解決
+      if (targetUri.startsWith('/') || targetUri.startsWith('./') || targetUri.startsWith('../')) {
+        const baseHref = typeof window !== 'undefined' ? window.location.href : 'http://localhost';
+        parsed = new URL(targetUri, baseHref);
+      } else {
+        return {
+          status: 'rejected',
+          origin: '',
+          hostname: '',
+          reason: 'リダイレクト先URIの形式が不正です。絶対URI(https://...)または正当な相対パスを指定してください。',
+        };
+      }
+    }
 
-    // http / https スキームのみ許可（javascript: や data: などを完全遮断）
+    // 1. スキーム検査
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return false;
+      return {
+        status: 'rejected',
+        origin: parsed.origin,
+        hostname: parsed.hostname,
+        reason: '安全でないプロトコルが指定されました。HTTPSのみ許可されています。',
+      };
     }
 
-    const currentOrigin = window.location.origin;
-    if (parsed.origin === currentOrigin) {
-      return true;
+    // 2. RFC 6749 Section 3.1.2: リダイレクトURIにフラグメント(#)の含有は絶対禁止
+    if (parsed.hash) {
+      return {
+        status: 'rejected',
+        origin: parsed.origin,
+        hostname: parsed.hostname,
+        reason: 'リダイレクト先URIにフラグメント(#)を含めることはRFC 6749により禁止されています。',
+      };
     }
 
-    // ローカル開発環境およびTailscaleネットワークの相互乗り入れを許可
-    if (
+    // 3. ループバックアドレス検査 (RFC 8252 Section 8.3: IPv4 & IPv6 localhost)
+    const isLocalhost =
       parsed.hostname === 'localhost' ||
       parsed.hostname === '127.0.0.1' ||
-      parsed.hostname.startsWith('100.')
-    ) {
-      return true;
+      parsed.hostname === '[::1]' ||
+      parsed.hostname === '::1';
+
+    // HTTP平文の制限（ループバックアドレス以外はHTTPS必須）
+    if (parsed.protocol === 'http:' && !isLocalhost) {
+      return {
+        status: 'rejected',
+        origin: parsed.origin,
+        hostname: parsed.hostname,
+        reason: 'セキュリティ保護のため、外部ドメインへのリダイレクトには暗号化通信(HTTPS)が必須です。',
+      };
     }
 
-    // 環境変数 VITE_ALLOWED_REDIRECT_ORIGINS から追加オリジンを取得
+    // 4. 'trusted' 判定 (完全管理下にあるオリジンのみ同意画面スキップ)
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    if (currentOrigin && parsed.origin === currentOrigin) {
+      return { status: 'trusted', origin: parsed.origin, hostname: parsed.hostname };
+    }
+
+    if (isLocalhost) {
+      return { status: 'trusted', origin: parsed.origin, hostname: parsed.hostname };
+    }
+
+    // Tailscale 内部通信の厳格判定（MagicDNS *.ts.net または CGNAT IPv4 100.64.0.0/10）
+    const isTailscale =
+      /^[a-zA-Z0-9-]+\.ts\.net$/i.test(parsed.hostname) ||
+      /^100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(parsed.hostname);
+
+    if (isTailscale) {
+      return { status: 'trusted', origin: parsed.origin, hostname: parsed.hostname };
+    }
+
+    // ホワイトリスト検証 (明示的に信頼登録されたオリジン)
     const envOrigins = (import.meta.env.VITE_ALLOWED_REDIRECT_ORIGINS || '')
       .split(',')
       .map((s: string) => s.trim())
       .filter(Boolean);
 
-    // ホワイトリスト検証
     const allowed = [
       ...additionalOrigins,
       ...envOrigins,
       'https://takafumi06.github.io',
     ];
 
-    return allowed.some((origin) => {
+    const isExplicitlyAllowed = allowed.some((origin) => {
       try {
         const allowedParsed = new URL(origin);
         return parsed.origin === allowedParsed.origin;
@@ -107,9 +190,41 @@ export function isAllowedRedirectUri(targetUri: string, additionalOrigins: strin
         return false;
       }
     });
+
+    if (isExplicitlyAllowed) {
+      return { status: 'trusted', origin: parsed.origin, hostname: parsed.hostname };
+    }
+
+    // 5. 'requires_consent' 判定 (GitHub Pages, 大学ドメイン, 外部独自ドメイン)
+    // 外部サービス（誰でも作成可能な *.github.io を含む）は、ゼロクリック窃取を防ぐため
+    // 必ず「外部アプリケーション連携の確認（Consent Screen）」を経てユーザーの明示的同意を取得する
+    if (parsed.protocol === 'https:' && parsed.hostname.includes('.')) {
+      return { status: 'requires_consent', origin: parsed.origin, hostname: parsed.hostname };
+    }
+
+    return {
+      status: 'rejected',
+      origin: parsed.origin,
+      hostname: parsed.hostname,
+      reason: '無効または安全性が確認できないホスト名です。',
+    };
   } catch {
-    return false;
+    return {
+      status: 'rejected',
+      origin: '',
+      hostname: '',
+      reason: 'リダイレクトURLの形式が正しくありません。',
+    };
   }
+}
+
+/**
+ * 許可されたリダイレクト先オリジン判定（後方互換用）
+ * 'trusted' または 'requires_consent' であれば true を返します。
+ */
+export function isAllowedRedirectUri(targetUri: string, additionalOrigins: string[] = []): boolean {
+  const result = validateRedirectUri(targetUri, additionalOrigins);
+  return result.status !== 'rejected';
 }
 
 /**
