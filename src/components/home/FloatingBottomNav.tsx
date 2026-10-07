@@ -1,7 +1,7 @@
 import React from 'react';
-import { Home, User, Users, BookOpen } from 'lucide-react';
+import { Home, User, Users, BookOpen, Calendar } from 'lucide-react';
 
-export type MainTab = 'home' | 'dex' | 'exchange' | 'profile' | 'friends';
+export type MainTab = 'home' | 'dex' | 'events' | 'exchange' | 'profile' | 'friends';
 
 interface FloatingBottomNavProps {
   activeTab: MainTab;
@@ -60,6 +60,24 @@ export const FloatingBottomNav: React.FC<FloatingBottomNavProps> = ({
           title="モッフィー図鑑"
         >
           <BookOpen className="w-5 h-5" />
+        </button>
+
+        {/* 3. イベント・チェックイン（アイコンのみ） */}
+        <button
+          onClick={() => onChangeTab('events')}
+          className={`relative w-11 h-11 sm:w-12 sm:h-12 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+            activeTab === 'events'
+              ? isDarkMode
+                ? 'bg-neutral-800 text-white shadow-xs ring-1 ring-white/20'
+                : 'bg-neutral-100 text-neutral-900 shadow-xs ring-1 ring-neutral-300'
+              : isDarkMode
+                ? 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40'
+                : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100/60'
+          }`}
+          aria-label="イベント・チェックイン"
+          title="イベント・チェックイン"
+        >
+          <Calendar className="w-5 h-5" />
         </button>
 
         {/* 3. フレンド交換（真ん中・Google AI Ambassadorシンボル・アイコンのみ） */}

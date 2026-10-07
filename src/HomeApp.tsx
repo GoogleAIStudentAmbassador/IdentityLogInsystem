@@ -8,6 +8,7 @@ import { MoffyDexTab } from './components/home/MoffyDexTab';
 import { FriendExchangeTab } from './components/home/FriendExchangeTab';
 import { ProfileTab } from './components/home/ProfileTab';
 import { FriendsTab } from './components/home/FriendsTab';
+import { EventsTab } from './components/home/EventsTab';
 import { FloatingBottomNav } from './components/home/FloatingBottomNav';
 import type { MainTab } from './components/home/FloatingBottomNav';
 import { getFriendList, getTutorialStatus, saveTutorialCompleted, getPublicProfile, getMoffyQuizData } from './services/api';
@@ -43,11 +44,11 @@ export const HomeApp: React.FC = () => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab') as MainTab;
-      if (tabParam && ['home', 'dex', 'exchange', 'profile', 'friends'].includes(tabParam)) {
+      if (tabParam && ['home', 'dex', 'events', 'exchange', 'profile', 'friends'].includes(tabParam)) {
         return tabParam;
       }
       const hash = window.location.hash.replace('#', '') as MainTab;
-      if (hash && ['home', 'dex', 'exchange', 'profile', 'friends'].includes(hash)) {
+      if (hash && ['home', 'dex', 'events', 'exchange', 'profile', 'friends'].includes(hash)) {
         return hash;
       }
     }
@@ -494,6 +495,13 @@ export const HomeApp: React.FC = () => {
             friends={friends}
             isDarkMode={isDarkMode}
             onGoToExchange={() => setActiveTab('exchange')}
+          />
+        )}
+        {activeTab === 'events' && (
+          <EventsTab
+            user={user}
+            isDarkMode={isDarkMode}
+            onOpenPersonaQr={() => setActiveTab('exchange')}
           />
         )}
         {activeTab === 'exchange' && (

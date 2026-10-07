@@ -341,6 +341,12 @@ export const FriendExchangeTab: React.FC<FriendExchangeTabProps> = ({
                   )}
                 </div>
               )}
+
+              {hasMoffy && (
+                <p className={`mt-3 text-center text-[11px] leading-relaxed max-w-xs ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>
+                  名刺交換はもちろん、<span className="font-semibold text-emerald-400">イベント受付チェックイン</span>でもこのQRコードをそのまま提示できます。
+                </p>
+              )}
             </div>
           </div>
         </div>

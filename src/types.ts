@@ -435,6 +435,54 @@ export const TUTORIAL_STEPS: TutorialStepConfig[] = [
   },
 ];
 
+// --- Event & Check-in Management Models ---
+export interface EventItem {
+  event_id: string;
+  title: string;
+  description?: string | null;
+  event_date: string;
+  location: string;
+  capacity?: number | null;
+  organizer_id: string;
+  is_active: boolean;
+  total_attendees: number;
+  created_at: string;
+  updated_at: string;
+}
 
+export interface CreateEventPayload {
+  title: string;
+  description?: string | null;
+  event_date: string;
+  location: string;
+  capacity?: number | null;
+  is_active?: boolean;
+}
 
+export interface AttendeeInfo {
+  attendee_id: string;
+  name: string;
+  display_name?: string | null;
+  university?: string | null;
+  photo_url?: string | null;
+  is_ambassador: boolean;
+  checked_in_at: string;
+  checked_in_by: string;
+  checkin_method?: string;
+  note?: string | null;
+}
 
+export interface CheckinResponse {
+  status: 'success' | 'warning' | 'error';
+  already_checked_in: boolean;
+  message: string;
+  attendee: AttendeeInfo;
+  total_attendees: number;
+}
+
+export interface EventAttendeesResponse {
+  status: string;
+  event_id: string;
+  total_attendees: number;
+  attendees: AttendeeInfo[];
+}

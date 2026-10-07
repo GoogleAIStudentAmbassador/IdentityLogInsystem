@@ -284,3 +284,57 @@ export function parsePassportQrPayload(text: string): ParsedPassport | null {
 
   return null;
 }
+
+/**
+ * QRコードのペイロードから安全に参加者IDを抽出し、XSSやパストラバーサルを物理遮断します。
+ * 本番受付画面およびAPI呼び出し前に必ず適用されます。
+ */
+export function extractAttendeeIdFromQr(qrPayload: string | null | undefined): string | null {
+  if (!qrPayload || typeof qrPayload !== 'string') return null;
+  const cleaned = qrPayload.trim();
+
+  // 安全なID検証正規表現: 1〜64文字の英数字・許可記号。ただし '.', '..' 単独および '..' 連続は完全禁止
+  const SAFE_ID_REGEX = /^(?!\.{1,2}$)(?!.*\.\.)[a-zA-Z0-9_.#-]{1,64}$/;
+
+  // 1. URL形式の場合 (share.html?id=...)
+  if (cleaned.startsWith('http://') || cleaned.startsWith('https://') || cleaned.includes('share.html')) {
+    try {
+      const base = typeof window !== 'undefined' ? window.location.href : 'https://takafumi06.github.io';
+      const url = new URL(cleaned, base);
+      const id = url.searchParams.get('id') || url.searchParams.get('discord_id') || url.searchParams.get('user_id');
+      if (id && SAFE_ID_REGEX.test(id.trim())) {
+        return id.trim();
+      }
+      const parts = url.pathname.split('/').filter(Boolean);
+      if (parts.length > 0) {
+        const candidate = parts[parts.length - 1];
+        if (!candidate.endsWith('.html') && SAFE_ID_REGEX.test(candidate)) {
+          return candidate.trim();
+        }
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  // 2. JSON形式の場合 (例: {"type":"moffy_passport","id":"..."})
+  if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
+    try {
+      const data = JSON.parse(cleaned);
+      const candidateId = data.id || data.attendee_id || data.discord_id;
+      if (candidateId && typeof candidateId === 'string' && SAFE_ID_REGEX.test(candidateId.trim())) {
+        return candidateId.trim();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 3. 生ID文字列の場合（英数字・記号の1〜64文字のみ許可、'.'や'..'単独・連続は排除）
+  if (SAFE_ID_REGEX.test(cleaned)) {
+    return cleaned;
+  }
+
+  return null;
+}
+
