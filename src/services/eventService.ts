@@ -64,19 +64,23 @@ export class EventService implements IEventService {
     timeoutMs: number = 8000
   ): Promise<T> {
     const controller = new AbortController();
+    let isTimeout = false;
     const timeoutId = setTimeout(() => {
+      isTimeout = true;
       controller.abort();
     }, timeoutMs);
 
     // 外部から signal が渡された場合、それと連動して abort
+    const onCustomSignalAbort = () => {
+      controller.abort();
+    };
+
     if (customSignal) {
       if (customSignal.aborted) {
         clearTimeout(timeoutId);
         throw new DOMException('Aborted', 'AbortError');
       }
-      customSignal.addEventListener('abort', () => {
-        controller.abort();
-      });
+      customSignal.addEventListener('abort', onCustomSignalAbort);
     }
 
     const url = `${this.baseUrl}${endpoint}`;
@@ -119,9 +123,13 @@ export class EventService implements IEventService {
         if (response.status === 401) {
           safeMsg = '認証の有効期限が切れたか、ログインしていません。再ログインしてください。';
         } else if (response.status === 403) {
-          safeMsg = 'この操作を実行する権限がありません（主催者または管理者限定）。';
+          if (safeMsg === 'サーバーとの通信でエラーが発生しました。') {
+            safeMsg = 'この操作を実行する権限がありません（主催者または管理者限定）。';
+          }
         } else if (response.status === 404) {
-          safeMsg = '指定されたイベントまたは参加者が見つかりません。';
+          if (safeMsg === 'サーバーとの通信でエラーが発生しました。') {
+            safeMsg = '指定されたイベントまたは参加者が見つかりません。';
+          }
         }
 
         throw new Error(safeMsg);
@@ -133,15 +141,21 @@ export class EventService implements IEventService {
 
       return (await response.json()) as T;
     } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
+      const errName = (err as { name?: string })?.name;
+      if ((err instanceof DOMException && err.name === 'AbortError') || errName === 'AbortError') {
+        if (isTimeout) {
+          throw new Error('通信がタイムアウトしました。電波の良い場所で再度お試しください。');
+        }
         if (customSignal?.aborted) {
           throw err;
         }
-        throw new Error('通信がタイムアウトしました。電波の良い場所で再度お試しください。');
       }
       throw err;
     } finally {
       clearTimeout(timeoutId);
+      if (customSignal) {
+        customSignal.removeEventListener('abort', onCustomSignalAbort);
+      }
     }
   }
 
@@ -156,7 +170,7 @@ export class EventService implements IEventService {
    * イベント詳細を取得（公開）
    */
   public async getEvent(eventId: string, signal?: AbortSignal): Promise<EventItem> {
-    if (!eventId) throw new Error('イベントIDが指定されていません。');
+    validateEventId(eventId);
     return this.request<EventItem>(`/api/events/${encodeURIComponent(eventId)}`, { method: 'GET' }, signal);
   }
 
@@ -174,7 +188,7 @@ export class EventService implements IEventService {
    * イベントを削除（主催者/管理者限定）
    */
   public async deleteEvent(eventId: string): Promise<void> {
-    if (!eventId) throw new Error('イベントIDが指定されていません。');
+    validateEventId(eventId);
     await this.request<void>(`/api/events/${encodeURIComponent(eventId)}`, {
       method: 'DELETE',
     });
@@ -184,7 +198,7 @@ export class EventService implements IEventService {
    * イベントの出席者名簿一覧を取得（スタッフ/管理者限定）
    */
   public async getEventAttendees(eventId: string, signal?: AbortSignal): Promise<EventAttendeesResponse> {
-    if (!eventId) throw new Error('イベントIDが指定されていません。');
+    validateEventId(eventId);
     return this.request<EventAttendeesResponse>(
       `/api/events/${encodeURIComponent(eventId)}/attendees`,
       { method: 'GET' },
@@ -201,7 +215,7 @@ export class EventService implements IEventService {
     attendeeIdOrPayload: string,
     note?: string
   ): Promise<CheckinResponse> {
-    if (!eventId) throw new Error('イベントIDが指定されていません。');
+    validateEventId(eventId);
     if (!attendeeIdOrPayload) throw new Error('参加者データが空です。');
 
     return this.request<CheckinResponse>(`/api/events/${encodeURIComponent(eventId)}/checkin`, {
@@ -217,13 +231,34 @@ export class EventService implements IEventService {
    * チェックイン取り消し（誤スキャン解除・スタッフ限定）
    */
   public async deleteCheckin(eventId: string, attendeeId: string): Promise<void> {
-    if (!eventId || !attendeeId || attendeeId === '.' || attendeeId === '..' || attendeeId.includes('..')) {
-      throw new Error('イベントIDまたは参加者IDが不正です。');
-    }
+    validateEventId(eventId);
+    validateAttendeeId(attendeeId);
     await this.request<void>(
       `/api/events/${encodeURIComponent(eventId)}/checkin/${encodeURIComponent(attendeeId)}`,
       { method: 'DELETE' }
     );
+  }
+}
+
+const SAFE_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
+
+function validateEventId(eventId: string): void {
+  if (!eventId || typeof eventId !== 'string' || !eventId.trim()) {
+    throw new Error('イベントIDが指定されていません。');
+  }
+  const trimmed = eventId.trim();
+  if (!SAFE_ID_REGEX.test(trimmed)) {
+    throw new Error('イベントIDの形式が不正です（英数字、ハイフン、アンダースコア1〜128文字限定）。');
+  }
+}
+
+function validateAttendeeId(attendeeId: string): void {
+  if (!attendeeId || typeof attendeeId !== 'string' || !attendeeId.trim()) {
+    throw new Error('参加者IDが指定されていません。');
+  }
+  const trimmed = attendeeId.trim();
+  if (!SAFE_ID_REGEX.test(trimmed)) {
+    throw new Error('参加者IDの形式が不正です（英数字、ハイフン、アンダースコア1〜128文字限定）。');
   }
 }
 

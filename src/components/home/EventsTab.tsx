@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Calendar,
   MapPin,
@@ -36,7 +36,16 @@ export const EventsTab: React.FC<EventsTabProps> = ({
 }) => {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
-  const [attendees, setAttendees] = useState<AttendeeInfo[]>([]);
+  // 🌟 [CRITICAL DETERMINISTIC STATE GUARD]:
+  // 名簿ステートに対象 eventId を同封することで、可変参照（ref）の Render-Commit タイムラグに依存せず、
+  // React 19 Concurrent / StrictMode のあらゆる並行・中断・再レンダリング時も 100% 決定論的に名簿混入・破壊を物理遮断
+  const [attendeesState, setAttendeesState] = useState<{ eventId: string; list: AttendeeInfo[] }>({
+    eventId: '',
+    list: [],
+  });
+  const attendees = useMemo(() => {
+    return selectedEvent && attendeesState.eventId === selectedEvent.event_id ? attendeesState.list : [];
+  }, [selectedEvent, attendeesState]);
   const [isLoadingEvents, setIsLoadingEvents] = useState(true);
   const [isLoadingAttendees, setIsLoadingAttendees] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -54,10 +63,33 @@ export const EventsTab: React.FC<EventsTabProps> = ({
   // 判定基準タイムスタンプ（純粋性維持）
   const nowTimestamp = useMemo(() => Date.now(), [events]);
 
-  // スタッフ / 管理者 / アンバサダー判定 (BOLA防御 & UI制御)
+  // 4大ロール体系 & 主催者権限の厳格判定 (RBAC & BOLA防御)
+  const isAdmin = Boolean(user?.role === 'admin' || user?.is_admin);
+  const isBureau = Boolean(user?.role === 'bureau');
+  const isOrganizer = Boolean(user?.is_event_organizer || isAdmin || isBureau);
   const isStaffOrAmbassador = Boolean(
-    user?.is_staff || user?.is_ambassador || user?.isAmbassador
+    user?.is_staff || user?.is_ambassador || user?.isAmbassador || isOrganizer || isBureau || isAdmin
   );
+
+  // イベント新規作成権限（主催者フラグ、事務局、管理者のみ）
+  const canCreateEvent = isOrganizer;
+
+  // 受付チェックイン権限（スタッフ、アンバサダー、主催者、事務局、管理者）
+  const canCheckin = isStaffOrAmbassador;
+
+  // イベント削除権限判定（当該イベントの主催者本人、または管理者のみ）
+  const checkCanDeleteEvent = useCallback((targetEvent: EventItem | null): boolean => {
+    if (!targetEvent) return false;
+    if (isAdmin) return true;
+    if (user?.discord_user_id && targetEvent.organizer_id === user.discord_user_id) return true;
+    if (user?.google_id && targetEvent.organizer_id === user.google_id) return true;
+    return false;
+  }, [isAdmin, user]);
+
+  const canDeleteEvent = Boolean(selectedEvent && checkCanDeleteEvent(selectedEvent));
+
+  // チェックイン取消権限（スタッフ、アンバサダー、主催者、事務局、管理者）
+  const canDeleteCheckin = canCheckin;
 
   const fetchEvents = useCallback(async () => {
     setIsLoadingEvents(true);
@@ -74,64 +106,123 @@ export const EventsTab: React.FC<EventsTabProps> = ({
     }
   }, []);
 
-  const fetchAttendees = useCallback(async (eventId: string, signal?: AbortSignal) => {
-    setIsLoadingAttendees(true);
-    try {
-      const data = await eventService.getEventAttendees(eventId, signal);
-      setAttendees(data.attendees || []);
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        return; // キャンセルされた古い通信は無視
-      }
-      console.warn('Failed to fetch attendees:', err);
-      setAttendees([]);
-    } finally {
-      if (!signal?.aborted) {
-        setIsLoadingAttendees(false);
-      }
+  // 手動再同期用の AbortController（連続連打やイベント切り替え時の競合根絶）
+  const manualRefreshControllerRef = useRef<AbortController | null>(null);
+
+  const handleManualRefresh = useCallback(() => {
+    if (!selectedEvent) return;
+    const currentEventId = selectedEvent.event_id;
+
+    if (manualRefreshControllerRef.current) {
+      manualRefreshControllerRef.current.abort();
     }
-  }, []);
+    const controller = new AbortController();
+    manualRefreshControllerRef.current = controller;
+
+    setIsLoadingAttendees(true);
+    eventService.getEventAttendees(currentEventId, controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) {
+          setAttendeesState({ eventId: currentEventId, list: data.attendees || [] });
+        }
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        const msg = err instanceof Error ? err.message : '出席者名簿の取得に失敗しました。';
+        setErrorMsg(msg);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoadingAttendees(false);
+        }
+      });
+  }, [selectedEvent]);
 
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
 
-  // イベント選択変更時の名簿取得（AbortController による Stale Response 競合根絶）
+  // 🌟 [REACT 19 CONCURRENT & STALE CLOSURE PROOF]:
+  // クリーンアップクロージャフラグ (isCurrent) と AbortController の協調により、
+  // 高速切り替え時の名簿消失・旧イベントデータ混入・スピナー永久フリーズを数学的に完全根絶
   useEffect(() => {
     if (!selectedEvent) {
-      setAttendees([]);
+      setAttendeesState({ eventId: '', list: [] });
+      setIsLoadingAttendees(false);
       return;
     }
 
+    const currentEventId = selectedEvent.event_id;
+    // イベント切り替え時に即座に新イベントID（空名簿）に先行設定
+    setAttendeesState({ eventId: currentEventId, list: [] });
+
+    if (manualRefreshControllerRef.current) {
+      manualRefreshControllerRef.current.abort();
+    }
+
+    let isCurrent = true;
     const controller = new AbortController();
-    fetchAttendees(selectedEvent.event_id, controller.signal);
+    manualRefreshControllerRef.current = controller;
+
+    setIsLoadingAttendees(true);
+    eventService.getEventAttendees(currentEventId, controller.signal)
+      .then((data) => {
+        if (isCurrent && !controller.signal.aborted) {
+          setAttendeesState({ eventId: currentEventId, list: data.attendees || [] });
+        }
+      })
+      .catch((err: unknown) => {
+        if (!isCurrent || controller.signal.aborted) return;
+        const msg = err instanceof Error ? err.message : '出席者名簿の取得に失敗しました。';
+        setErrorMsg(msg);
+        setAttendeesState({ eventId: currentEventId, list: [] });
+      })
+      .finally(() => {
+        if (isCurrent && !controller.signal.aborted) {
+          setIsLoadingAttendees(false);
+        }
+      });
 
     return () => {
+      isCurrent = false;
       controller.abort();
     };
-  }, [selectedEvent, fetchAttendees]);
+  }, [selectedEvent]);
 
   const handleSelectEvent = (event: EventItem) => {
     setSelectedEvent(event);
   };
 
-  const handleCheckinSuccess = (res: CheckinResponse) => {
-    // 参加者リストを即時ローカル更新（N+1 / 再フェッチを回避して最適化）
-    setAttendees((prev) => {
-      const exists = prev.some((a) => a.attendee_id === res.attendee.attendee_id);
+  const handleCheckinSuccess = (res: CheckinResponse, checkedInEventId?: string) => {
+    // 🌟 [CRITICAL DETERMINISTIC MULTI-LAYER CHECKIN GUARD]:
+    // レスポンスオブジェクトの event_id またはスキャン開始時の checkedInEventId を最優先照合
+    const targetEventId = res.event_id || checkedInEventId || selectedEvent?.event_id;
+    if (!targetEventId) return;
+
+    // 🌟 [CRITICAL DETERMINISTIC STATE GUARD]:
+    // 名簿ステートが targetEventId と一致している場合のみ純粋関数として更新。
+    // イベント切り替え直後の遅延レスポンスによる他イベント名簿混入（Prepend破壊）を 100% 物理遮断
+    setAttendeesState((prev) => {
+      if (prev.eventId !== targetEventId) {
+        return prev;
+      }
+      const exists = prev.list.some((a) => a.attendee_id === res.attendee.attendee_id);
       if (exists) {
         return prev;
       }
-      return [res.attendee, ...prev];
+      return {
+        eventId: prev.eventId,
+        list: [res.attendee, ...prev.list],
+      };
     });
 
-    // 選択中イベントの出席者数カウントを即時更新
-    if (selectedEvent) {
-      setSelectedEvent((prev) => (prev ? { ...prev, total_attendees: res.total_attendees } : null));
-    }
+    // 選択中イベントの出席者数カウントを即時更新（対象イベントIDが一致する場合のみ更新する厳格ガード）
+    setSelectedEvent((prev) =>
+      prev && prev.event_id === targetEventId ? { ...prev, total_attendees: res.total_attendees } : prev
+    );
     setEvents((prev) =>
       prev.map((ev) =>
-        ev.event_id === (selectedEvent?.event_id || '')
+        ev.event_id === targetEventId
           ? { ...ev, total_attendees: res.total_attendees }
           : ev
       )
@@ -140,19 +231,34 @@ export const EventsTab: React.FC<EventsTabProps> = ({
 
   const handleDeleteCheckin = (attendeeId: string, attendeeName: string) => {
     if (!selectedEvent) return;
+    if (!canDeleteCheckin) {
+      setErrorMsg('チェックインを取り消す権限がありません（スタッフ・アンバサダー・管理者限定）。');
+      return;
+    }
+    const targetEventId = selectedEvent.event_id;
     setConfirmDialog({
       title: 'チェックイン取消',
       message: `「${attendeeName}」様のチェックインを取り消しますか？`,
       onConfirm: async () => {
         try {
-          await eventService.deleteCheckin(selectedEvent.event_id, attendeeId);
-          setAttendees((prev) => prev.filter((a) => a.attendee_id !== attendeeId));
+          await eventService.deleteCheckin(targetEventId, attendeeId);
+          setAttendeesState((prev) => {
+            if (prev.eventId !== targetEventId) {
+              return prev;
+            }
+            return {
+              eventId: prev.eventId,
+              list: prev.list.filter((a) => a.attendee_id !== attendeeId),
+            };
+          });
           setSelectedEvent((prev) =>
-            prev ? { ...prev, total_attendees: Math.max(0, prev.total_attendees - 1) } : null
+            prev && prev.event_id === targetEventId
+              ? { ...prev, total_attendees: Math.max(0, prev.total_attendees - 1) }
+              : prev
           );
           setEvents((prev) =>
             prev.map((ev) =>
-              ev.event_id === selectedEvent.event_id
+              ev.event_id === targetEventId
                 ? { ...ev, total_attendees: Math.max(0, ev.total_attendees - 1) }
                 : ev
             )
@@ -165,6 +271,10 @@ export const EventsTab: React.FC<EventsTabProps> = ({
   };
 
   const handleDeleteEvent = (event: EventItem) => {
+    if (!checkCanDeleteEvent(event)) {
+      setErrorMsg('このイベントを削除する権限がありません（作成者または管理者限定）。');
+      return;
+    }
     setConfirmDialog({
       title: 'イベント削除',
       message: `イベント「${event.title}」を完全に削除しますか？\n（出席者名簿も削除されます）`,
@@ -174,6 +284,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({
           setEvents((prev) => prev.filter((e) => e.event_id !== event.event_id));
           if (selectedEvent?.event_id === event.event_id) {
             setSelectedEvent(null);
+            setAttendeesState({ eventId: '', list: [] });
           }
         } catch (err: unknown) {
           setErrorMsg(err instanceof Error ? err.message : 'イベントの削除に失敗しました。');
@@ -204,9 +315,24 @@ export const EventsTab: React.FC<EventsTabProps> = ({
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
               <Calendar className="w-3.5 h-3.5" /> イベント・チェックイン
             </span>
-            {isStaffOrAmbassador && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                <Sparkles className="w-3 h-3" /> STAFF MODE
+            {isAdmin && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                <ShieldCheck className="w-3 h-3" /> ADMIN
+              </span>
+            )}
+            {isBureau && !isAdmin && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                <ShieldCheck className="w-3 h-3" /> BUREAU
+              </span>
+            )}
+            {user?.is_event_organizer && !isAdmin && !isBureau && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                <Sparkles className="w-3 h-3" /> ORGANIZER
+              </span>
+            )}
+            {(user?.is_ambassador || user?.isAmbassador) && !isAdmin && !isBureau && !user?.is_event_organizer && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                <Sparkles className="w-3 h-3" /> AMBASSADOR
               </span>
             )}
           </div>
@@ -233,7 +359,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({
             </button>
           )}
 
-          {isStaffOrAmbassador && (
+          {canCreateEvent && (
             <button
               onClick={() => setIsCreateModalOpen(true)}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30 transition-all cursor-pointer"
@@ -294,7 +420,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({
             >
               <Calendar className="w-10 h-10 mx-auto mb-2 text-neutral-500 opacity-50" />
               <p className="text-xs font-semibold">開催予定のイベントはありません</p>
-              {isStaffOrAmbassador && (
+              {canCreateEvent && (
                 <button
                   onClick={() => setIsCreateModalOpen(true)}
                   className="mt-3 text-xs text-emerald-400 font-bold hover:underline"
@@ -405,7 +531,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({
 
                   {/* 受付スキャナー起動ボタン */}
                   <div className="flex items-center gap-2 shrink-0">
-                    {isStaffOrAmbassador ? (
+                    {canCheckin ? (
                       <button
                         onClick={() => {
                           audioFeedback.unlock();
@@ -428,7 +554,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({
                       )
                     )}
 
-                    {isStaffOrAmbassador && (
+                    {canDeleteEvent && (
                       <button
                         onClick={() => handleDeleteEvent(selectedEvent)}
                         className="p-3 rounded-2xl border border-neutral-700 text-neutral-400 hover:text-rose-400 hover:border-rose-900/50 transition-colors cursor-pointer"
@@ -494,7 +620,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({
                       />
                     </div>
                     <button
-                      onClick={() => selectedEvent && fetchAttendees(selectedEvent.event_id)}
+                      onClick={handleManualRefresh}
                       disabled={isLoadingAttendees}
                       className={`p-2 rounded-xl border transition-all cursor-pointer ${
                         isDarkMode
@@ -582,7 +708,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({
                             </span>
                           </div>
 
-                          {isStaffOrAmbassador && (
+                          {canDeleteCheckin && (
                             <button
                               onClick={() => handleDeleteCheckin(att.attendee_id, att.name)}
                               className="p-1.5 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-rose-950/30 transition-colors cursor-pointer"
@@ -619,10 +745,11 @@ export const EventsTab: React.FC<EventsTabProps> = ({
       {/* モーダル */}
       {selectedEvent && (
         <EventScannerModal
+          key={selectedEvent.event_id}
           event={selectedEvent}
           isOpen={isScannerOpen}
           onClose={() => setIsScannerOpen(false)}
-          onCheckinSuccess={handleCheckinSuccess}
+          onCheckinSuccess={(res) => handleCheckinSuccess(res, selectedEvent.event_id)}
           isDarkMode={isDarkMode}
         />
       )}

@@ -73,12 +73,15 @@ export const GRADE_OPTIONS: { value: GradeType; label: string }[] = [
   { value: 'その他', label: 'その他 (社会人/既卒)' },
 ];
 
+export type UserRole = 'guest' | 'ambassador' | 'bureau' | 'admin';
+
 export interface RegistrationResult {
   discord_user_id: string;
   name?: string | null;
   last_name?: string | null;
   first_name?: string | null;
   nickname?: string | null;
+  display_name?: string | null;
   photo_url?: string | null;
   default_photo_url?: string | null;
   arranged_photo_url?: string | null;
@@ -93,6 +96,8 @@ export interface RegistrationResult {
   discord_verified_at?: number | null;
   discord_2fa_expires_at?: number | null;
   is_ambassador?: boolean;
+  role?: UserRole;
+  is_event_organizer?: boolean;
 }
 
 export interface AuthConfigResponse {
@@ -130,6 +135,8 @@ export interface GoogleLoginResponse {
     google_email?: string | null;
     auth_provider?: string;
     is_ambassador?: boolean;
+    role?: UserRole;
+    is_event_organizer?: boolean;
   } | null;
 }
 
@@ -342,7 +349,7 @@ export interface PartnerProfileResponse {
   google_id?: string | null;
 }
 
-export type GameStage = 'intro' | 'checking_auth' | 'quiz' | 'customize' | 'generating' | 'result';
+export type GameStage = 'intro' | 'checking_auth' | 'auth_error' | 'quiz' | 'customize' | 'generating' | 'result';
 
 export interface QrPassportData {
   type: 'moffy_passport';
@@ -476,6 +483,7 @@ export interface CheckinResponse {
   status: 'success' | 'warning' | 'error';
   already_checked_in: boolean;
   message: string;
+  event_id?: string;
   attendee: AttendeeInfo;
   total_attendees: number;
 }

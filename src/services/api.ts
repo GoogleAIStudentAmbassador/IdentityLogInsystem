@@ -279,6 +279,9 @@ export async function loginUser(
     updated_at: data.user.updated_at,
     google_id: data.user.google_id || null,
     is_ambassador: Boolean(data.user.is_ambassador),
+    role: data.user.role || (data.user.is_ambassador ? 'ambassador' : 'guest'),
+    is_event_organizer: Boolean(data.user.is_event_organizer),
+    display_name: data.user.display_name || data.user.nickname || null,
   };
 
   const extractedMbti =

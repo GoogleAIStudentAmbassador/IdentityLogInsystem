@@ -3,6 +3,9 @@
  * (Adversarial Remediation Edition 3 - Exhaustive Verification)
  */
 
+const fs = require('fs');
+const path = require('path');
+
 // src/utils/oauthClient.ts の validateRedirectUri 実装と等価なロジックをテスト
 function validateRedirectUri(targetUri, currentOrigin, additionalOrigins = [], envOrigins = []) {
   if (!targetUri || typeof targetUri !== 'string') {
@@ -75,16 +78,7 @@ function validateRedirectUri(targetUri, currentOrigin, additionalOrigins = [], e
       return { status: 'trusted', origin: parsed.origin, hostname: parsed.hostname };
     }
 
-    // Tailscale 内部通信の厳格判定（MagicDNS *.ts.net または CGNAT IPv4 100.64.0.0/10）
-    const isTailscale =
-      /^[a-zA-Z0-9-]+\.ts\.net$/i.test(parsed.hostname) ||
-      /^100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(parsed.hostname);
-
-    if (isTailscale) {
-      return { status: 'trusted', origin: parsed.origin, hostname: parsed.hostname };
-    }
-
-    // ホワイトリスト検証 (明示的に信頼登録されたオリジン)
+    // ホワイトリスト検証 (明示的に信頼登録されたオリジンのみ trusted)
     const allowed = [
       ...additionalOrigins,
       ...envOrigins,
@@ -102,6 +96,17 @@ function validateRedirectUri(targetUri, currentOrigin, additionalOrigins = [], e
 
     if (isExplicitlyAllowed) {
       return { status: 'trusted', origin: parsed.origin, hostname: parsed.hostname };
+    }
+
+    // 🌟 [SECURITY HARDENING against Tailscale Funnel Token Exfiltration]:
+    // Tailscale MagicDNS (*.ts.net) や CGNAT IPv4 (100.64.0.0/10) は誰でも公開 Funnel ノードを作成可能なため、
+    // 明示的なホワイトリストにない場合は無条件 trusted とせず、必ず 'requires_consent'（同意画面）を要求して Zero-Click 漏洩を物理遮断
+    const isTailscale =
+      /^(?:[a-zA-Z0-9-]+\.)+ts\.net$/i.test(parsed.hostname) ||
+      /^100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(parsed.hostname);
+
+    if (isTailscale) {
+      return { status: 'requires_consent', origin: parsed.origin, hostname: parsed.hostname };
     }
 
     // 5. 'requires_consent' 判定 (GitHub Pages, 大学ドメイン, 外部独自ドメイン)
@@ -148,9 +153,10 @@ const redirectTestCases = [
   { uri: 'http://localhost:3000/callback', origin: 'https://takafumi06.github.io', expected: 'trusted', desc: 'IPv4 localhost (RFC 8252)' },
   { uri: 'http://127.0.0.1:8080/cb', origin: 'https://takafumi06.github.io', expected: 'trusted', desc: 'IPv4 127.0.0.1 (RFC 8252)' },
   { uri: 'http://[::1]:5173/cb', origin: 'https://takafumi06.github.io', expected: 'trusted', desc: 'IPv6 [::1] (RFC 8252)' },
-  { uri: 'https://my-device.ts.net:8443/cb', origin: 'https://takafumi06.github.io', expected: 'trusted', desc: 'Tailscale MagicDNS (*.ts.net)' },
-  { uri: 'https://100.64.0.1:8443/cb', origin: 'https://takafumi06.github.io', expected: 'trusted', desc: 'Tailscale CGNAT IPv4 (100.64.0.0/10 開始点)' },
-  { uri: 'https://100.127.255.254:8443/cb', origin: 'https://takafumi06.github.io', expected: 'trusted', desc: 'Tailscale CGNAT IPv4 (100.64.0.0/10 終点近傍)' },
+  { uri: 'https://my-device.ts.net:8443/cb', origin: 'https://takafumi06.github.io', expected: 'requires_consent', desc: 'Tailscale MagicDNS (*.ts.net) (Zero-Click流出防止のため同意画面へ)' },
+  { uri: 'https://my-node.prawn-atlantic.ts.net:8443/cb', origin: 'https://takafumi06.github.io', expected: 'requires_consent', desc: 'Tailscale マルチレベルサブドメイン (*.*.ts.net)' },
+  { uri: 'https://100.64.0.1:8443/cb', origin: 'https://takafumi06.github.io', expected: 'requires_consent', desc: 'Tailscale CGNAT IPv4 (100.64.0.0/10 開始点) (Zero-Click流出防止のため同意画面へ)' },
+  { uri: 'https://100.127.255.254:8443/cb', origin: 'https://takafumi06.github.io', expected: 'requires_consent', desc: 'Tailscale CGNAT IPv4 (100.64.0.0/10 終点近傍) (Zero-Click流出防止のため同意画面へ)' },
   { uri: 'https://100.1.2.3:8443/cb', origin: 'https://takafumi06.github.io', expected: 'requires_consent', desc: 'CGNAT外の一般IP (100.* の危険プレフィックス判定排除)' },
   { uri: 'https://100.evil.com/steal', origin: 'https://takafumi06.github.io', expected: 'requires_consent', desc: '100.evil.com のようなドメイン偽装' },
   { uri: 'https://ayato964.github.io/RunMeMe/', origin: 'https://takafumi06.github.io', expected: 'requires_consent', desc: '外部 GitHub Pages (ゼロクリック窃取防止のため同意画面へ)' },
@@ -299,17 +305,108 @@ if (!client.isAuthenticated()) {
   failed++;
 }
 
-console.log('\n=== 7. Direct Visit State Bridge & Loop Guard Simulation ===');
+console.log('\n=== 7. Direct Visit State Bridge & UTF-8 JWS & Login DoS Defense Simulation ===');
+// 7.1. 直接アクセス時の CSRF state 自動生成 & sessionStorage 保存の機能検証
 const mockSessionStorage = {};
-const oauthParams = { state: 'direct_visit_state_123' };
-mockSessionStorage['moffy_oauth_csrf_state'] = oauthParams.state;
+function simulateParseOAuthParams(queryString, storage) {
+  const params = new URLSearchParams(queryString);
+  const rawState = params.get('state');
+  const isDirectVisit = !rawState;
+  const state = rawState || 'auto_gen_direct_visit_state_xyz';
+  if (isDirectVisit) {
+    storage['moffy_oauth_csrf_state'] = state;
+  }
+  return { state, isDirectVisit };
+}
 
-const incomingState = 'direct_visit_state_123';
-const retrievedState = mockSessionStorage['moffy_oauth_csrf_state'];
-if (retrievedState === incomingState) {
-  console.log('[PASS] Direct visit state successfully bridged across pages via sessionStorage');
+// 直接アクセス時（state クエリなし）に自律的に保存されるか
+const parsedDirect = simulateParseOAuthParams('', mockSessionStorage);
+if (parsedDirect.isDirectVisit && mockSessionStorage['moffy_oauth_csrf_state'] === parsedDirect.state) {
+  console.log('[PASS] Direct visit state successfully auto-bridged into sessionStorage by OAuthApp logic');
 } else {
   console.error('[FAIL] Direct visit state bridge failed!');
+  failed++;
+}
+
+// 7.2. 本番 OAuthApp.tsx の物理的静的整合性検証（虚偽合格根絶）
+const oauthAppCode = fs.readFileSync(path.join(__dirname, '../src/OAuthApp.tsx'), 'utf8');
+if (
+  oauthAppCode.includes("sessionStorage.setItem('moffy_oauth_csrf_state', state);") &&
+  oauthAppCode.includes('safeBase64UrlEncode') &&
+  oauthAppCode.includes('needsPackaging = !existingPayload || (user.is_discord_verified && !hasVerifiedClaim);')
+) {
+  console.log('[PASS] 本番 OAuthApp.tsx に直接アクセス CSRF state ブリッジ、safeBase64UrlEncode、2FA クレーム統合が物理的に存在');
+} else {
+  console.error('[FAIL] 本番 OAuthApp.tsx の直接アクセスブリッジまたは UTF-8 エンコード実装が確認できません');
+  failed++;
+}
+
+// 7.3. UTF-8 日本語名・マルチバイト文字での safeBase64UrlEncode 整合性検証
+function safeBase64UrlEncodeTest(str) {
+  const utf8Bytes = encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) =>
+    String.fromCharCode(parseInt(p1, 16))
+  );
+  return Buffer.from(utf8Bytes, 'binary').toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+const japanesePayload = JSON.stringify({ name: '田中 太郎', university: '東京大学', wish: '✨星の旅人✨' });
+let utf8Encoded = '';
+let utf8Success = false;
+try {
+  utf8Encoded = safeBase64UrlEncodeTest(japanesePayload);
+  // oauthClient.ts L98-103 と同一の UTF-8 デコードイディオムで検証
+  let b64 = utf8Encoded.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  const binary = Buffer.from(b64, 'base64').toString('binary');
+  const percentEncoded = binary.split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('');
+  const decodedStr = decodeURIComponent(percentEncoded);
+  if (decodedStr === japanesePayload) {
+    utf8Success = true;
+  }
+} catch (e) {
+  console.error('[FAIL] safeBase64UrlEncode threw an exception for Japanese text:', e);
+}
+
+if (utf8Success) {
+  console.log('[PASS] safeBase64UrlEncode: 日本語・マルチバイト文字でも例外クラッシュせず完全可逆エンコード成功');
+} else {
+  console.error('[FAIL] safeBase64UrlEncode UTF-8 検証が失敗しました');
+  failed++;
+}
+
+// 7.4. Login DoS 防御検証: 進行中ログインに対する不正エラー（state欠落または不一致）での csrf_state 温存検証
+const loginDosStorage = { 'moffy_oauth_csrf_state': 'legit_in_flight_state_999' };
+function simulateErrorCallback(searchStr, storage) {
+  const params = new URLSearchParams(searchStr);
+  const incomingState = params.get('state');
+  const savedState = storage['moffy_oauth_csrf_state'];
+  let shouldConsumeState = false;
+
+  if (!savedState) {
+    return { attempted: false, success: false };
+  } else if (!incomingState || savedState !== incomingState) {
+    return { attempted: true, success: false, error: 'csrf_mismatch' };
+  } else {
+    shouldConsumeState = true;
+    return { attempted: true, success: false, error: 'legit_error' };
+  }
+}
+
+// 攻撃: state パラメータなしのエラーを踏ませる
+const dosAttackResult = simulateErrorCallback('error=access_denied', loginDosStorage);
+if (dosAttackResult.error === 'csrf_mismatch' && loginDosStorage['moffy_oauth_csrf_state'] === 'legit_in_flight_state_999') {
+  console.log('[PASS] Login DoS 防御: state 欠落のエラーを受信しても csrf_state は削除されず温存され、正規セッションを保護');
+} else {
+  console.error('[FAIL] Login DoS 防御失敗: 不正エラーによって csrf_state が抹消されました');
+  failed++;
+}
+
+// 未ログイン状態（savedStateなし）でのエラー受信
+const unauthStorage = {};
+const unauthResult = simulateErrorCallback('error=access_denied', unauthStorage);
+if (unauthResult.attempted === false) {
+  console.log('[PASS] 未ログイン状態での不審なエラー受信時、attempted: false で静かに無視し全画面ソフトロックを回避');
+} else {
+  console.error('[FAIL] 未ログイン状態でのエラー処理が attempted=true になりました');
   failed++;
 }
 

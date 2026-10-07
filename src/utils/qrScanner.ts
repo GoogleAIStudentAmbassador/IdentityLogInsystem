@@ -84,6 +84,7 @@ export class QrScannerEngine {
   private stream: MediaStream | null = null;
   private animationFrameId: number | null = null;
   private isScanning = false;
+  private startGeneration = 0; // 🌟 世代カウンター（非同期起動中の stop() との競合・ゴーストカメラ起動を根絶）
   private strategies: IQrDecoderStrategy[];
   private activeStrategy: IQrDecoderStrategy;
   private onResultCallback: ((result: QrScanResult) => void) | null = null;
@@ -121,6 +122,9 @@ export class QrScannerEngine {
     onResult: (result: QrScanResult) => void,
     facingMode: 'environment' | 'user' = 'environment'
   ): Promise<void> {
+    this.stop(); // 既存ストリームがあれば停止し世代を繰り上げ
+    const currentGeneration = ++this.startGeneration;
+
     this.videoElement = video;
     this.onResultCallback = onResult;
     this.canvasElement = document.createElement('canvas');
@@ -128,9 +132,6 @@ export class QrScannerEngine {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('お使いのブラウザはカメラアクセスをサポートしていません。');
     }
-
-    // 既存ストリームがあれば停止
-    this.stop();
 
     try {
       const constraints: MediaStreamConstraints = {
@@ -142,11 +143,27 @@ export class QrScannerEngine {
         audio: false,
       };
 
-      this.stream = await navigator.mediaDevices.getUserMedia(constraints);
-      this.videoElement.srcObject = this.stream;
-      this.videoElement.setAttribute('playsinline', 'true'); // iOS Safari でインライン再生必須
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
 
-      await this.videoElement.play();
+      // await 復帰時に自身が既に stop() されていたか、別セッションが起動された場合（ゴースト起動を完全防止）
+      if (this.startGeneration !== currentGeneration) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      this.stream = mediaStream;
+      if (this.videoElement) {
+        this.videoElement.srcObject = this.stream;
+        this.videoElement.setAttribute('playsinline', 'true'); // iOS Safari でインライン再生必須
+        await this.videoElement.play();
+      }
+
+      // 再度 await play() 復帰時の世代チェック
+      if (this.startGeneration !== currentGeneration) {
+        this.stop();
+        return;
+      }
+
       this.isScanning = true;
       this.lastScannedData = '';
       this.lastScannedTime = 0;
@@ -163,6 +180,7 @@ export class QrScannerEngine {
    * スキャンの停止とカメラリソース解放
    */
   public stop(): void {
+    this.startGeneration++; // 進行中の非同期 start() を即座に無効化
     this.isScanning = false;
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
@@ -175,8 +193,17 @@ export class QrScannerEngine {
     }
 
     if (this.videoElement) {
+      try {
+        this.videoElement.pause();
+      } catch {
+        // ignore
+      }
       this.videoElement.srcObject = null;
+      this.videoElement = null;
     }
+
+    this.canvasElement = null;
+    this.onResultCallback = null;
   }
 
   /**

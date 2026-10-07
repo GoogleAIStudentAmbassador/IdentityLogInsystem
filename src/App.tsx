@@ -43,7 +43,14 @@ function saveUserSession(session: UserMoffySession): void {
   try {
     localStorage.setItem(`${USER_STORAGE_PREFIX}${session.discordUserId}`, JSON.stringify(session));
   } catch (e) {
-    console.warn('Could not save user session to localStorage:', e);
+    console.warn('Could not save user session to localStorage, attempting fallback without cardDataUrl:', e);
+    try {
+      // 🌟 クォータ超過対策: 大容量 DataURL を除外してセッションの基本属性を確実に保存
+      const lightweightSession = { ...session, cardDataUrl: null };
+      localStorage.setItem(`${USER_STORAGE_PREFIX}${session.discordUserId}`, JSON.stringify(lightweightSession));
+    } catch (e2) {
+      console.error('Fatal: Failed to save user session even without cardDataUrl:', e2);
+    }
   }
 }
 
@@ -154,22 +161,46 @@ export const App: React.FC = () => {
 
   // 初期ロード時：OAuth認証ガード & セッション検証
   useEffect(() => {
-    // 🌟 批判検証是正 B: コールバックハッシュの存在を物理的に検出し、認証失敗時の無限リダイレクトループを完全に遮断
-    const hasCallbackHash = typeof window !== 'undefined' && window.location.hash.includes('access_token');
-    authClient.handleCallback();
+    // 🌟 批判検証是正 ⑤ & 告発 2: URLSearchParams による厳格なコールバック・エラー検出（部分一致誤検知の完全根絶）
+    const hash = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
+    const search = typeof window !== 'undefined' ? window.location.search.replace(/^\?/, '') : '';
+    const hashParams = new URLSearchParams(hash);
+    const searchParams = new URLSearchParams(search);
+    const hasCallback =
+      hashParams.has('access_token') ||
+      hashParams.has('error') ||
+      hashParams.has('error_description') ||
+      searchParams.has('error') ||
+      searchParams.has('error_description');
+
+    const hasCallbackHash = hasCallback;
+    const lastRes = authClient.getLastCallbackResult();
+    if (!lastRes.attempted && hasCallback) {
+      authClient.handleCallback();
+    }
 
     const initAuth = async () => {
       // 2. 認証状態の確認
       if (!authClient.isAuthenticated()) {
-        // コールバックハッシュが存在したにもかかわらず認証が不成立だった場合はループを遮断
-        if (hasCallbackHash) {
-          console.error('[Auth Guard] Callback processing failed or storage access denied. Halting redirect loop.');
+        const lastRes = authClient.getLastCallbackResult();
+        if (lastRes.attempted && !lastRes.success) {
+          console.warn('[App Auth Guard] Callback failed or rejected. Halting redirect loop.');
+          setErrorMsg(
+            lastRes.error
+              ? (lastRes.error.includes('access_denied')
+                  ? '外部連携の承認が拒否されました。IdentityLogInsystem を利用するには、OAuth 連携の許可が必要です。'
+                  : `認証エラー: ${lastRes.error}`)
+              : '認証トークンの検証に失敗しました。再度ログインをお試しください。'
+          );
+          setStage('auth_error');
+          return;
+        }
+
+        // コールバックが存在したにもかかわらず認証が不成立だった場合はループを遮断
+        if (hasCallback) {
+          console.error('[App Auth Guard] Callback processing failed or storage access denied. Halting redirect loop.');
           setErrorMsg('認証トークンの検証に失敗したか、ブラウザのCookie/LocalStorageアクセスが無効化されています。プライベートブラウズ設定をご確認ください。');
-          try {
-            window.history.replaceState(null, '', window.location.pathname + window.location.search);
-          } catch {
-            // ignore
-          }
+          setStage('auth_error');
           return;
         }
 
@@ -758,6 +789,32 @@ export const App: React.FC = () => {
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-white">
             <Loader2 className="w-10 h-10 text-google-blue animate-spin mb-4" />
             <p className="text-sm font-medium text-gray-300">ログイン状態を確認中...</p>
+          </div>
+        )}
+
+        {/* 認証エラー画面（永久スピナー / UIソフトロック防止） */}
+        {stage === 'auth_error' && (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-white max-w-md mx-auto text-center">
+            <div className="w-14 h-14 rounded-full bg-red-500/20 flex items-center justify-center mb-4 text-red-400">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+            <h2 className="text-xl font-bold mb-2 text-white">ログイン連携エラー</h2>
+            <p className="text-sm text-gray-300 mb-6 leading-relaxed">
+              {errorMsg || '認証の検証中にエラーが発生しました。'}
+            </p>
+            <button
+              onClick={() => {
+                try {
+                  sessionStorage.removeItem('moffy_oauth_last_error');
+                } catch {
+                  // ignore
+                }
+                authClient.login();
+              }}
+              className="px-6 py-2.5 rounded-xl bg-google-blue text-white font-semibold text-sm hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-blue-500/30"
+            >
+              再ログインする
+            </button>
           </div>
         )}
 

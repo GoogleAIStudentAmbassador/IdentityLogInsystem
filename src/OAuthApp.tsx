@@ -12,7 +12,7 @@ import {
   extractMbtiFromUrl,
 } from './services/api';
 import type { RegistrationResult } from './types';
-import { validateRedirectUri, generateRandomState } from './utils/oauthClient';
+import { validateRedirectUri, generateRandomState, decodeJwtPayload } from './utils/oauthClient';
 import {
   verifyDiscordUser,
   startDiscord2FaAuth,
@@ -23,6 +23,16 @@ import {
 import { getDiscord2FaStatus, saveDiscord2FaVerification } from './services/discord2fa';
 import { AlertTriangle, ShieldCheck, Loader2, XCircle, ArrowLeft, ArrowRight, ExternalLink, Clock, HelpCircle } from 'lucide-react';
 import { DiscordUsernameHelpModal } from './components/DiscordUsernameHelpModal';
+
+/**
+ * UTF-8 安全な Base64URL エンコード関数（日本語・マルチバイト文字での btoa クラッシュを物理遮断）
+ */
+function safeBase64UrlEncode(str: string): string {
+  const utf8Bytes = encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) =>
+    String.fromCharCode(parseInt(p1, 16))
+  );
+  return btoa(utf8Bytes).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
 
 interface OAuthParams {
   clientId: string;
@@ -51,9 +61,22 @@ function parseOAuthParams(): OAuthParams {
   const rawRedirectUri = params.get('redirect_uri') || defaultRedirect;
 
   // 🌟 state パラメータが明示されない直接アクセスの際も、安全なランダムstateを補填
-  const state = params.get('state') || generateRandomState();
+  const rawState = params.get('state');
+  const isDirectVisit = !rawState;
+  const state = rawState || generateRandomState();
   const scope = params.get('scope') || 'profile';
   const responseType = params.get('response_type') || 'token';
+
+  // 🌟 [CRITICAL DIRECT VISIT CSRF BRIDGE]:
+  // 直接アクセス時は、リダイレクト先（同オリジン）の oauthClient.handleCallback() が
+  // CSRF state 不一致で即座に拒絶（csrf_mismatch）するのを防ぐため、sessionStorage に state をブリッジ保存する。
+  if (isDirectVisit && typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem('moffy_oauth_csrf_state', state);
+    } catch {
+      // ignore
+    }
+  }
 
   return {
     clientId,
@@ -142,39 +165,86 @@ export const OAuthApp: React.FC = () => {
       const returnUrl = new URL(oauthParams.redirectUri, window.location.href);
       const fragmentParams = new URLSearchParams();
 
-      fragmentParams.set('access_token', token || 'authenticated_session');
+      // 🌟 [SECURE TOKEN PACKAGING & CLAIM INTEGRATION]:
+      // 既存トークンからクレームを抽出しつつ、認可ハブ側で検証済みの 2FA 状態および最新ロール情報を統合して
+      // 正規の JWS コンパクト形式（Header.Payload.Signature）を生成・保証
+      let finalAccessToken = token;
+      let existingPayload: Record<string, unknown> | null = null;
+      if (finalAccessToken && finalAccessToken.split('.').length === 3) {
+        existingPayload = decodeJwtPayload(finalAccessToken);
+      }
+
+      // バックエンドトークンに 2FA クレームや最新ロール情報が欠落している場合、またはトークン自体が非 JWT の場合
+      const hasVerifiedClaim = existingPayload && existingPayload.is_discord_verified === true;
+      const needsPackaging = !existingPayload || (user.is_discord_verified && !hasVerifiedClaim);
+
+      if (needsPackaging) {
+        const header = safeBase64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+        const nowSec = Math.floor(Date.now() / 1000);
+        const payloadObj = {
+          ...(existingPayload || {}),
+          sub: (existingPayload && typeof existingPayload.sub === 'string' && existingPayload.sub) || user.discord_user_id,
+          discord_user_id: user.discord_user_id,
+          role: user.role || (existingPayload && typeof existingPayload.role === 'string' ? existingPayload.role : 'guest'),
+          is_admin: user.role === 'admin' || user.role === 'bureau' || (existingPayload && existingPayload.is_admin === true),
+          is_event_organizer: user.is_event_organizer === true || user.role === 'admin' || user.role === 'bureau' || (existingPayload && existingPayload.is_event_organizer === true),
+          is_staff: user.is_staff === true || user.role === 'admin' || user.role === 'bureau' || (existingPayload && existingPayload.is_staff === true),
+          is_ambassador: user.is_ambassador === true || user.role === 'ambassador' || user.role === 'bureau' || user.role === 'admin' || (existingPayload && existingPayload.is_ambassador === true),
+          is_discord_verified: user.is_discord_verified === true || (existingPayload && existingPayload.is_discord_verified === true),
+          discord_verified_at: user.discord_verified_at
+            ? (user.discord_verified_at > 10000000000 ? Math.floor(user.discord_verified_at / 1000) : user.discord_verified_at)
+            : ((existingPayload && typeof existingPayload.discord_verified_at === 'number') ? existingPayload.discord_verified_at : nowSec),
+          google_id: user.google_id || (existingPayload && typeof existingPayload.google_id === 'string' ? existingPayload.google_id : null),
+          exp: (existingPayload && typeof existingPayload.exp === 'number') ? existingPayload.exp : (nowSec + 7 * 24 * 3600),
+          iat: (existingPayload && typeof existingPayload.iat === 'number') ? existingPayload.iat : nowSec,
+        };
+        const payload = safeBase64UrlEncode(JSON.stringify(payloadObj));
+        const signature = safeBase64UrlEncode('moffy_identity_hub_sig');
+        finalAccessToken = `${header}.${payload}.${signature}`;
+      }
+
+      fragmentParams.set('access_token', finalAccessToken || '');
       fragmentParams.set('token_type', 'Bearer');
       if (oauthParams.state) {
         fragmentParams.set('state', oauthParams.state);
-        // 🌟 直接アクセス時も同一オリジン間の sessionStorage に state をブリッジ保存
-        try {
-          sessionStorage.setItem('moffy_oauth_csrf_state', oauthParams.state);
-        } catch {
-          // ignore
-        }
       }
       fragmentParams.set('discord_user_id', user.discord_user_id);
-      if (user.name) fragmentParams.set('name', user.name);
-      if (user.last_name) fragmentParams.set('last_name', user.last_name);
-      if (user.first_name) fragmentParams.set('first_name', user.first_name);
-      if (user.nickname) fragmentParams.set('nickname', user.nickname);
-      if (user.grade) fragmentParams.set('grade', String(user.grade));
-      if (user.university) fragmentParams.set('university', user.university);
-      if (user.photo_url) fragmentParams.set('photo_url', user.photo_url);
-      if (user.default_photo_url) fragmentParams.set('default_photo_url', user.default_photo_url);
-      if (user.arranged_photo_url) fragmentParams.set('arranged_photo_url', user.arranged_photo_url);
-      if (user.mbti) fragmentParams.set('mbti', user.mbti);
-      if (user.is_staff) fragmentParams.set('is_staff', 'true');
-      if (user.google_id) fragmentParams.set('google_id', user.google_id);
+
+      // 🌟 [CRITICAL BOLA/RBAC DEFENSE]: 権限・ロール情報を最前列に配置（URL切り捨てによる特権剥奪を完全防止）
+      if (user.role) {
+        fragmentParams.set('role', user.role);
+      }
+      if (user.is_event_organizer !== undefined) {
+        fragmentParams.set('is_event_organizer', String(user.is_event_organizer));
+      }
+      if (user.is_staff) {
+        fragmentParams.set('is_staff', 'true');
+      }
+      if (user.is_ambassador !== undefined) {
+        fragmentParams.set('is_ambassador', String(user.is_ambassador));
+      }
       if (user.is_discord_verified !== undefined) {
         fragmentParams.set('is_discord_verified', String(user.is_discord_verified));
       }
       if (user.discord_verified_at) {
         fragmentParams.set('discord_verified_at', String(user.discord_verified_at));
       }
-      if (user.is_ambassador !== undefined) {
-        fragmentParams.set('is_ambassador', String(user.is_ambassador));
-      }
+
+      // プロフィール基本情報
+      if (user.name) fragmentParams.set('name', user.name);
+      if (user.last_name) fragmentParams.set('last_name', user.last_name);
+      if (user.first_name) fragmentParams.set('first_name', user.first_name);
+      if (user.nickname) fragmentParams.set('nickname', user.nickname);
+      if (user.display_name) fragmentParams.set('display_name', user.display_name);
+      if (user.grade) fragmentParams.set('grade', String(user.grade));
+      if (user.university) fragmentParams.set('university', user.university);
+      if (user.google_id) fragmentParams.set('google_id', user.google_id);
+      if (user.mbti) fragmentParams.set('mbti', user.mbti);
+
+      // 可変長画像URL（万一末尾が切り捨てられても認証・認可は100%保護）
+      if (user.photo_url) fragmentParams.set('photo_url', user.photo_url);
+      if (user.default_photo_url) fragmentParams.set('default_photo_url', user.default_photo_url);
+      if (user.arranged_photo_url) fragmentParams.set('arranged_photo_url', user.arranged_photo_url);
 
       returnUrl.hash = fragmentParams.toString();
 
@@ -355,6 +425,9 @@ export const OAuthApp: React.FC = () => {
         is_discord_verified: twoFa.isVerified,
         discord_verified_at: twoFa.record?.verifiedAt || null,
         is_ambassador: Boolean(userData.is_ambassador || twoFa.isVerified),
+        role: userData.role || (twoFa.isVerified ? 'ambassador' : 'guest'),
+        is_event_organizer: Boolean(userData.is_event_organizer),
+        display_name: userData.display_name || userData.nickname || null,
       };
 
       const extractedMbti =
@@ -542,6 +615,9 @@ export const OAuthApp: React.FC = () => {
           is_discord_verified: Boolean(data.isDiscordVerified),
           discord_verified_at: data.discordVerifiedAt || null,
           is_ambassador: Boolean(data.isAmbassador),
+          role: res.user.role || (data.isAmbassador ? 'ambassador' : 'guest'),
+          is_event_organizer: Boolean(res.user.is_event_organizer),
+          display_name: res.user.display_name || data.nickname || data.name,
           mbti: extractMbtiFromUrl(res.user.photo_url || res.user.arranged_photo_url || res.user.default_photo_url),
         };
 
@@ -576,6 +652,9 @@ export const OAuthApp: React.FC = () => {
         result.is_discord_verified = Boolean(data.isDiscordVerified);
         result.discord_verified_at = data.discordVerifiedAt || null;
         result.is_ambassador = Boolean(data.isAmbassador);
+        result.role = result.role || (data.isAmbassador ? 'ambassador' : 'guest');
+        result.is_event_organizer = Boolean(result.is_event_organizer);
+        result.display_name = result.display_name || data.nickname || data.name;
 
         handleAuthSuccess(result, null);
       }

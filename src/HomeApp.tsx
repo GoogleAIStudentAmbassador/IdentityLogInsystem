@@ -20,23 +20,46 @@ const USER_STORAGE_PREFIX = 'moffy_user_session_';
 const THEME_STORAGE_KEY = 'moffy_theme_mode';
 
 function loadLatestUserSession(discordUserId?: string): UserMoffySession | null {
+  if (!discordUserId) return null;
   try {
-    if (discordUserId) {
-      const target = localStorage.getItem(`${USER_STORAGE_PREFIX}${discordUserId}`);
-      if (target) return JSON.parse(target);
-    }
-
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(USER_STORAGE_PREFIX)) {
-        const val = localStorage.getItem(key);
-        if (val) return JSON.parse(val);
-      }
-    }
+    const target = localStorage.getItem(`${USER_STORAGE_PREFIX}${discordUserId}`);
+    if (target) return JSON.parse(target);
   } catch (e) {
     console.warn('Failed to load user session in HomeApp:', e);
   }
   return null;
+}
+
+// 🌟 [REACT 19 CONCURRENT & PURITY GUARANTEE]:
+// レンダーフェーズでの副作用（URL変更・sessionStorage消費）を完全排除するため、
+// モジュール初期化時に一度だけ安全にコールバックをパース・浄化
+const defaultHomeAuthClient = new MoffyAuthClient({
+  clientId: 'moffy-community-home',
+});
+
+let preMountCallbackFailed = false;
+
+const preMountHashParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.hash.replace(/^#/, '')) : null;
+const preMountSearchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search.replace(/^\?/, '')) : null;
+
+if (
+  preMountHashParams &&
+  preMountSearchParams &&
+  (preMountHashParams.has('access_token') ||
+    preMountHashParams.has('error') ||
+    preMountHashParams.has('error_description') ||
+    preMountSearchParams.has('error') ||
+    preMountSearchParams.has('error_description'))
+) {
+  try {
+    const success = defaultHomeAuthClient.handleCallback();
+    if (!success) {
+      preMountCallbackFailed = true;
+    }
+  } catch (err) {
+    console.error('[HomeApp] Pre-mount auth callback handling error:', err);
+    preMountCallbackFailed = true;
+  }
 }
 
 export const HomeApp: React.FC = () => {
@@ -59,6 +82,24 @@ export const HomeApp: React.FC = () => {
   // 🌟 初回起動インタラクティブ・チュートリアル管理ステート
   const [isTutorialActive, setIsTutorialActive] = useState<boolean>(false);
   const [currentTutorialStep, setCurrentTutorialStep] = useState<number>(1);
+
+  // 🌟 認証コールバック失敗・無限リダイレクトループ防止ステート
+  const [authError, setAuthError] = useState<string | null>(() => {
+    if (preMountCallbackFailed) {
+      const lastRes = defaultHomeAuthClient.getLastCallbackResult();
+      if (lastRes.error) {
+        if (lastRes.error.includes('access_denied')) {
+          return '外部連携の承認が拒否されました。IdentityLogInsystem を利用するには、OAuth 連携の許可が必要です。';
+        }
+        if (lastRes.error === 'csrf_mismatch') {
+          return 'セキュリティ検証（CSRF）に失敗しました。別タブでログインを開始したか、セッションが切断された可能性があります。';
+        }
+        return `認証エラー: ${lastRes.error}`;
+      }
+      return '認証トークンの検証に失敗しました。再度ログインをお試しください。';
+    }
+    return null;
+  });
 
   // テーマモード: localStorageに保存されている値、またはデフォルトでナイトモード(true)
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -84,29 +125,59 @@ export const HomeApp: React.FC = () => {
     });
   };
 
-  const authClient = useMemo(() => {
-    const client = new MoffyAuthClient({
-      clientId: 'moffy-community-home',
-    });
-    if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
-      client.handleCallback();
-    }
-    return client;
-  }, []);
+  const authClient = useMemo(() => defaultHomeAuthClient, []);
 
-  const [user, setUser] = useState<AuthUser | null>(() => authClient.getUser());
+  // 🌟 純粋な状態初期化（副作用はレンダー外で事前完了済み）
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    return authClient.getUser();
+  });
   const [session, setSession] = useState<UserMoffySession | null>(() => {
     const authUser = authClient.getUser();
     return loadLatestUserSession(authUser?.discord_user_id);
   });
 
-  // 🌟 認証ガード: 未ログイン状態の場合は即座に OAuth ハブへリダイレクト
+  // 🌟 マウント後の動的ハッシュ変更・遅延コールバックに対する安全なフォールバック
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hp = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const sp = new URLSearchParams(window.location.search.replace(/^\?/, ''));
+    const hasCallbackParams =
+      hp.has('access_token') ||
+      hp.has('error') ||
+      hp.has('error_description') ||
+      sp.has('error') ||
+      sp.has('error_description');
+
+    const lastRes = authClient.getLastCallbackResult();
+
+    // 🌟 二重実行による csrf_mismatch 誤判定・永久ロックアウトを物理遮断
+    if (!lastRes.attempted && hasCallbackParams) {
+      const handled = authClient.handleCallback();
+      if (handled) {
+        setUser(authClient.getUser());
+        setAuthError(null);
+      } else {
+        const res = authClient.getLastCallbackResult();
+        setAuthError(res.error ? `認証エラー: ${res.error}` : '認証トークンの検証に失敗しました。');
+      }
+    }
+  }, [authClient]);
+
+  // 🌟 認証ガード: 未ログイン状態の場合は即座に OAuth ハブへリダイレクト（ループ遮断機能付き）
+  useEffect(() => {
+    // コールバック失敗時はリダイレクトを物理停止し、ブラウザクラッシュを防止
+    if (authError || preMountCallbackFailed) {
+      console.warn('[HomeApp Auth Guard] Callback failed. Halting automatic redirect loop.');
+      return;
+    }
+
     if (!authClient.isAuthenticated()) {
-      if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
-        console.error('[HomeApp Auth Guard] Callback token invalid. Stopping redirect loop.');
+      const lastRes = authClient.getLastCallbackResult();
+      if (lastRes.attempted && !lastRes.success) {
+        setAuthError('認証コールバックの処理に失敗しました。');
         return;
       }
+
       console.log('[HomeApp Auth Guard] Unauthenticated access detected. Redirecting to OAuth hub...');
       authClient.login();
       return;
@@ -118,7 +189,7 @@ export const HomeApp: React.FC = () => {
       authClient.login();
       return;
     }
-  }, [authClient]);
+  }, [authClient, authError]);
 
   const discordUserId = user?.discord_user_id || session?.discordUserId || '';
 
@@ -402,6 +473,31 @@ export const HomeApp: React.FC = () => {
       null
     );
   })();
+
+  if (authError) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center p-6 text-center select-none ${
+        isDarkMode ? 'bg-neutral-950 text-white' : 'bg-neutral-50 text-neutral-900'
+      }`}>
+        <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-4 text-rose-400">
+          <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <h2 className="text-xl font-bold mb-2">ログイン認証エラー</h2>
+        <p className="text-sm text-neutral-400 max-w-sm mb-6">{authError}</p>
+        <button
+          onClick={() => {
+            setAuthError(null);
+            authClient.login();
+          }}
+          className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition-all shadow-lg shadow-blue-500/20 cursor-pointer"
+        >
+          再度ログインする
+        </button>
+      </div>
+    );
+  }
 
   if (!authClient.isAuthenticated() && !(typeof window !== 'undefined' && window.location.hash.includes('access_token'))) {
     return (
