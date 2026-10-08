@@ -26,6 +26,7 @@ export async function generateQrCodeDataUrl(text: string): Promise<string> {
  * 高い誤り訂正レベル(H: 約30%復元可能)を使用するため、読み取り精度を維持します。
  */
 export async function generateMoffyQrDataUrl(text: string, moffyImageUrl?: string | null): Promise<string> {
+  let createdBlobUrl: string | null = null;
   try {
     const canvas = document.createElement('canvas');
     await QRCode.toCanvas(canvas, text, {
@@ -47,6 +48,17 @@ export async function generateMoffyQrDataUrl(text: string, moffyImageUrl?: strin
       return canvas.toDataURL('image/png');
     }
 
+    // タイムアウト付きフェッチ関数（最大3500msで中断し、フォールバックまたはプロキシへ移行）
+    const fetchWithTimeout = async (url: string, timeoutMs: number = 3500): Promise<Response> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { mode: 'cors', signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
     // モッフィー画像の安全なロード（キャッシュバスター＆プロキシ対応でCanvas汚染を完全防止）
     let safeImgSrc = moffyImageUrl;
     if (moffyImageUrl.startsWith('http://') || moffyImageUrl.startsWith('https://')) {
@@ -57,20 +69,22 @@ export async function generateMoffyQrDataUrl(text: string, moffyImageUrl?: strin
         }
         const sep = fetchUrl.includes('?') ? '&' : '?';
         const cbUrl = `${fetchUrl}${sep}_moffy_qr_cb=${Date.now()}`;
-        const res = await fetch(cbUrl, { mode: 'cors' });
+        const res = await fetchWithTimeout(cbUrl, 3500);
         if (res.ok) {
           const blob = await res.blob();
-          safeImgSrc = URL.createObjectURL(blob);
+          createdBlobUrl = URL.createObjectURL(blob);
+          safeImgSrc = createdBlobUrl;
         }
       } catch {
-        // 直接取得失敗時はプロキシ試行
+        // 直接取得失敗・タイムアウト時はプロキシ試行
         try {
           const cleanUrl = moffyImageUrl.split('?')[0];
           const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(cleanUrl)}`;
-          const proxyRes = await fetch(proxyUrl, { mode: 'cors' });
+          const proxyRes = await fetchWithTimeout(proxyUrl, 3500);
           if (proxyRes.ok) {
             const blob = await proxyRes.blob();
-            safeImgSrc = URL.createObjectURL(blob);
+            createdBlobUrl = URL.createObjectURL(blob);
+            safeImgSrc = createdBlobUrl;
           }
         } catch {
           // ignore
@@ -83,9 +97,17 @@ export async function generateMoffyQrDataUrl(text: string, moffyImageUrl?: strin
       img.crossOrigin = 'anonymous';
     }
 
+    // 画像読み込みタイムアウト保護 (3000ms)
     await new Promise<void>((resolve) => {
-      img.onload = () => resolve();
-      img.onerror = () => resolve();
+      const timer = setTimeout(() => resolve(), 3000);
+      img.onload = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        resolve();
+      };
       img.src = safeImgSrc;
     });
 
@@ -120,6 +142,15 @@ export async function generateMoffyQrDataUrl(text: string, moffyImageUrl?: strin
   } catch (err) {
     console.error('Failed to generate Moffy QR Code:', err);
     return generateQrCodeDataUrl(text);
+  } finally {
+    // メモリリーク防止: 生成した一時 Blob URL を確実に破棄
+    if (createdBlobUrl) {
+      try {
+        URL.revokeObjectURL(createdBlobUrl);
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
@@ -142,31 +173,12 @@ export function createPassportShareUrl(passport: Omit<QrPassportData, 'type' | '
   const url = new URL(baseUrl, isBrowser ? window.location.href : 'https://moffy-ambassador.local/');
   url.searchParams.set('id', passport.id);
   if (passport.mbti) url.searchParams.set('mbti', passport.mbti);
-  // 【最重要セキュリティ要件】ニックネーム設定時は、URLパラメータからも本名を完全に除外してプライバシーを厳格保護
-  if (passport.nickname && passport.nickname.trim()) {
-    url.searchParams.set('nick', passport.nickname.trim());
-  } else {
-    if (passport.name) url.searchParams.set('name', passport.name);
-    if (passport.lastName) url.searchParams.set('last_name', passport.lastName);
-    if (passport.firstName) url.searchParams.set('first_name', passport.firstName);
-  }
-  if (passport.university) url.searchParams.set('univ', passport.university);
-  if (passport.grade) url.searchParams.set('grade', passport.grade);
-  if (passport.photoUrl) url.searchParams.set('photo', passport.photoUrl);
-  if (passport.birthday) url.searchParams.set('bday', passport.birthday);
-  if (passport.showBirthday !== undefined) url.searchParams.set('showBday', passport.showBirthday ? '1' : '0');
-  if (passport.hobbies) url.searchParams.set('hobbies', passport.hobbies);
-  if (passport.skills) url.searchParams.set('skills', passport.skills);
-  if (passport.isAmbassador !== undefined) url.searchParams.set('ambassador', passport.isAmbassador ? '1' : '0');
 
-  // SNSリンクを安全にコンパクトエンコード
-  if (passport.snsLinks && passport.snsLinks.length > 0) {
-    try {
-      const minimalSns = passport.snsLinks.map((s) => ({ p: s.platform, v: s.value }));
-      url.searchParams.set('sns', JSON.stringify(minimalSns));
-    } catch {
-      // ignore
-    }
+  // 【軽量化 & プライバシー保護】表示用ニックネーム（または名前）のみを付与し、
+  // 重大な画像URLやSNS JSON、自由記述テキストはQRから完全除外（APIからオンデマンド取得）
+  const displayNick = passport.nickname?.trim() || passport.name?.trim() || [passport.lastName, passport.firstName].filter(Boolean).join(' ').trim();
+  if (displayNick) {
+    url.searchParams.set('nick', displayNick);
   }
 
   return url.toString();

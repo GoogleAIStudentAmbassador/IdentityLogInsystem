@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import type { UserMoffySession, MbtiType, MoffyIconStyle } from '../../types';
 import type { AuthUser } from '../../utils/oauthClient';
 import { MBTI_ARCHETYPES } from '../../data/personalityQuestions';
+import { HomeEventsSection } from './HomeEventsSection';
 
 interface PassportTabProps {
   user: AuthUser | null;
@@ -475,6 +476,9 @@ export const PassportTab: React.FC<PassportTabProps> = ({
           </button>
         </div>
       )}
+
+      {/* 🌟 ホーム画面イベントセクション（直近2件表示 & 主催者「＋」追加対応） */}
+      <HomeEventsSection user={user} isDarkMode={isDarkMode} />
     </div>
   );
 };

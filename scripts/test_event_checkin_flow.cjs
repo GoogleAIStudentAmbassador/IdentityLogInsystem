@@ -1245,6 +1245,68 @@ if (
   failed++;
 }
 
+console.log('\n=== 15. 新ナビゲーション・QRコード簡略化・ホーム画面イベントセクション検証 ===');
+
+// 15.1 FloatingBottomNav.tsx のイベント項目削除 & 中央QRボタン拡大 (□□〇□□)
+const navSrc = fs.readFileSync(path.join(__dirname, '../src/components/home/FloatingBottomNav.tsx'), 'utf8');
+const hasNoCalendarNav = !navSrc.includes("onClick={() => onChangeTab('events')}");
+const hasEnlargedCenter = navSrc.includes("w-14 h-14") || navSrc.includes("w-15 sm:w-15");
+const hasFiveNavButtons = (navSrc.match(/<button/g) || []).length === 5;
+
+if (hasNoCalendarNav && hasEnlargedCenter && hasFiveNavButtons) {
+  console.log('[PASS] ナビゲーションバー: イベント項目が削除され、5つのボタンで中央QR交換ボタンが突出・拡大（□□〇□□）');
+} else {
+  console.error('[FAIL] ナビゲーションバーのイベント削除または中央ボタン拡大が確認できません', {
+    hasNoCalendarNav,
+    hasEnlargedCenter,
+    hasFiveNavButtons,
+  });
+  failed++;
+}
+
+// 15.2 qrUtils.ts の QRコード簡略化・データ密度圧縮検証
+const qrUtilsSrc = fs.readFileSync(path.join(__dirname, '../src/utils/qrUtils.ts'), 'utf8');
+const hasSimplifiedShareUrl =
+  qrUtilsSrc.includes("url.searchParams.set('id', passport.id);") &&
+  !qrUtilsSrc.includes("url.searchParams.set('photo',") &&
+  !qrUtilsSrc.includes("url.searchParams.set('sns',");
+
+if (hasSimplifiedShareUrl) {
+  console.log('[PASS] QRコード生成: 写真URLやSNS JSON等の過剰な情報量を排除し、ID・MBTI・ニックネームに簡略化完了');
+} else {
+  console.error('[FAIL] QRコードの過剰な情報量が依然として含まれています');
+  failed++;
+}
+
+// 15.3 PassportTab.tsx および HomeEventsSection.tsx の整合性検証
+const passportTabSrc = fs.readFileSync(path.join(__dirname, '../src/components/home/PassportTab.tsx'), 'utf8');
+const homeEventsSrc = fs.readFileSync(path.join(__dirname, '../src/components/home/HomeEventsSection.tsx'), 'utf8');
+const eventDetailSrc = fs.readFileSync(path.join(__dirname, '../src/components/home/EventDetailModal.tsx'), 'utf8');
+
+const hasHomeEventsMounted = passportTabSrc.includes('<HomeEventsSection user={user} isDarkMode={isDarkMode} />');
+const hasRbacPlusButton =
+  homeEventsSrc.includes('canCreateEvent') &&
+  homeEventsSrc.includes('<Plus') &&
+  homeEventsSrc.includes('CreateEventModal');
+const hasEventDetailModal =
+  homeEventsSrc.includes('EventDetailModal') &&
+  homeEventsSrc.includes('setSelectedEventForDetail') &&
+  eventDetailSrc.includes('イベント詳細');
+const hasLimitTwoEvents = homeEventsSrc.includes('.slice(0, 2)');
+
+if (hasHomeEventsMounted && hasRbacPlusButton && hasEventDetailModal && hasLimitTwoEvents) {
+  console.log('[PASS] ホーム画面イベントセクション: 直近2件表示、押下時詳細モーダル、主催権限時「＋」ボタンが完備');
+} else {
+  console.error('[FAIL] ホーム画面イベントセクションの仕様要件が満たされていません', {
+    hasHomeEventsMounted,
+    hasRbacPlusButton,
+    hasEventDetailModal,
+    hasLimitTwoEvents,
+  });
+  failed++;
+}
+
+
 console.log('\n-----------------------------------------------------------');
 if (failed === 0) {
   console.log('>> ALL EVENT CHECKIN ADVERSARIAL TESTS PASSED (0 defects) <<');
