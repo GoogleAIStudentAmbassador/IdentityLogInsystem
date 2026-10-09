@@ -24,6 +24,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<QrScannerEngine | null>(null);
   const isMountedRef = useRef(true);
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const facingModeRef = useRef<'environment' | 'user'>('environment');
@@ -44,8 +45,26 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (cooldownTimerRef.current) {
+        clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
     };
   }, []);
+
+  // ESC キー押下でモーダルを安全に閉じる
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   // スキャナーインスタンスの初期化
   useEffect(() => {
@@ -71,7 +90,8 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
         if (isMountedRef.current) {
           setScanMessage('❌ 無効なQRコード形式です（参加者IDが検出できません）');
         }
-        setTimeout(() => {
+        if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = setTimeout(() => {
           if (isMountedRef.current) {
             isProcessingRef.current = false;
             setIsProcessing(false);
@@ -103,7 +123,8 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
         const msg = err instanceof Error ? err.message : 'QRコードの解析または通信に失敗しました。';
         setScanMessage(`❌ エラー: ${msg}`);
       } finally {
-        setTimeout(() => {
+        if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = setTimeout(() => {
           if (isMountedRef.current) {
             isProcessingRef.current = false;
             setIsProcessing(false);
@@ -156,6 +177,10 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
       if (scannerRef.current) {
         scannerRef.current.stop();
       }
+      if (cooldownTimerRef.current) {
+        clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
       setLastCheckin(null);
       setScanMessage(null);
       setCameraError(null);
@@ -169,6 +194,10 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
     return () => {
       if (scannerRef.current) {
         scannerRef.current.stop();
+      }
+      if (cooldownTimerRef.current) {
+        clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
       }
     };
   }, [isOpen, startCamera]);
@@ -197,7 +226,7 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
 
   // カメラ切り替え（直列制御。useEffect に割り込ませず二重発火を物理根絶）
   const toggleFacingMode = useCallback(async () => {
-    if (isSwitchingCamera || isProcessingRef.current) return;
+    if (!isOpen || isSwitchingCamera || isProcessingRef.current) return;
     audioFeedback.unlock();
     setIsSwitchingCamera(true);
 
@@ -207,13 +236,13 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
 
     // iOS AVFoundation 解放ラグ待機 (250ms)
     await new Promise((resolve) => setTimeout(resolve, 250));
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current || !isOpen) return;
 
     const nextMode = facingModeRef.current === 'environment' ? 'user' : 'environment';
     facingModeRef.current = nextMode;
     setFacingMode(nextMode);
     await startCamera(nextMode);
-  }, [isSwitchingCamera, startCamera]);
+  }, [isOpen, isSwitchingCamera, startCamera]);
 
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -238,7 +267,14 @@ export const EventScannerModal: React.FC<EventScannerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
       <div
         className={`relative w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl border flex flex-col max-h-[92vh] ${
           isDarkMode

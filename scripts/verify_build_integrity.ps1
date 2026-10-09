@@ -42,6 +42,7 @@ $requiredFiles = @(
     "home.html",
     "oauth.html",
     "share.html",
+    "organizer.html",
     "manifest.json",
     "favicon.ico",
     "apple-touch-icon.png"
@@ -80,7 +81,7 @@ if ($jsFiles.Count -eq 0 -or $cssFiles.Count -eq 0) {
 }
 
 # Verify that each HTML references bundled JS and CSS
-$htmlFiles = @("index.html", "home.html", "oauth.html", "share.html")
+$htmlFiles = @("index.html", "home.html", "oauth.html", "share.html", "organizer.html")
 foreach ($html in $htmlFiles) {
     $fullHtmlPath = Join-Path $distDir $html
     $content = Get-Content $fullHtmlPath -Raw

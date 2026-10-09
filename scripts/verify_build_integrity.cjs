@@ -35,6 +35,7 @@ const expectedFiles = [
   'dist/home.html',
   'dist/oauth.html',
   'dist/share.html',
+  'dist/organizer.html',
   'dist/manifest.json',
   'dist/favicon.ico',
   'dist/apple-touch-icon.png',
@@ -64,7 +65,7 @@ const jsBundles = assetFiles.filter((f) => f.endsWith('.js'));
 const cssBundles = assetFiles.filter((f) => f.endsWith('.css'));
 console.log(`  Found ${jsBundles.length} JS bundles and ${cssBundles.length} CSS bundles.`);
 
-const htmlPages = ['dist/index.html', 'dist/home.html', 'dist/oauth.html', 'dist/share.html'];
+const htmlPages = ['dist/index.html', 'dist/home.html', 'dist/oauth.html', 'dist/share.html', 'dist/organizer.html'];
 const scriptRegex = /<script\s+[^>]*src="([^"]+)"/g;
 const linkRegex = /<link\s+[^>]*href="([^"]+)"/g;
 

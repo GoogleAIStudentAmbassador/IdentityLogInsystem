@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Calendar, MapPin, Users, FileText, Plus, Loader2 } from 'lucide-react';
 import { eventService } from '../../services/eventService';
 import type { EventItem, CreateEventPayload } from '../../types';
@@ -21,8 +21,31 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
   const [eventDate, setEventDate] = useState('');
   const [location, setLocation] = useState('');
   const [capacity, setCapacity] = useState<string>('');
+  const [requiresRegistration, setRequiresRegistration] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // ESC キーでモーダルを安全に閉じる
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -40,35 +63,62 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
       setErrorMsg('開催日時を選択してください。');
       return;
     }
+    const parsedDate = new Date(eventDate);
+    if (isNaN(parsedDate.getTime())) {
+      setErrorMsg('有効な開催日時を選択してください。');
+      return;
+    }
     if (!cleanLocation) {
       setErrorMsg('会場または開催URLを入力してください。');
       return;
     }
 
+    let parsedCapacity: number | undefined = undefined;
+    if (capacity && capacity.trim()) {
+      const num = parseInt(capacity.trim(), 10);
+      if (isNaN(num) || num <= 0) {
+        setErrorMsg('定員は1以上の正の整数を指定してください。');
+        return;
+      }
+      parsedCapacity = num;
+    }
+
     const payload: CreateEventPayload = {
       title: cleanTitle,
       description: description.trim() || undefined,
-      event_date: new Date(eventDate).toISOString(),
+      event_date: parsedDate.toISOString(),
       location: cleanLocation,
-      capacity: capacity ? parseInt(capacity, 10) : undefined,
+      capacity: parsedCapacity,
       is_active: true,
+      requires_registration: requiresRegistration,
     };
 
     setIsSubmitting(true);
     try {
       const created = await eventService.createEvent(payload);
+      if (!isMountedRef.current) return;
       onCreated(created);
       onClose();
     } catch (err: unknown) {
+      if (!isMountedRef.current) return;
       const msg = err instanceof Error ? err.message : 'イベントの作成に失敗しました。';
       setErrorMsg(msg);
     } finally {
-      setIsSubmitting(false);
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xs animate-fade-in">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xs animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
       <div
         className={`relative w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl border flex flex-col max-h-[90vh] ${
           isDarkMode
@@ -203,6 +253,19 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
                 }`}
               />
             </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 pt-1">
+            <input
+              type="checkbox"
+              id="requiresRegistration"
+              checked={requiresRegistration}
+              onChange={(e) => setRequiresRegistration(e.target.checked)}
+              className="w-4 h-4 rounded border-neutral-700 text-[#1a73e8] focus:ring-0 cursor-pointer"
+            />
+            <label htmlFor="requiresRegistration" className="text-xs font-medium cursor-pointer select-none text-inherit">
+              事前申込・抽選制（当選者のみ受付を許可）
+            </label>
           </div>
 
           <div className="pt-2 flex justify-end gap-3 border-t border-neutral-800/40">

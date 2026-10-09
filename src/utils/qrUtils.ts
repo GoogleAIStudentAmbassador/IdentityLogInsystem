@@ -309,7 +309,7 @@ export function extractAttendeeIdFromQr(qrPayload: string | null | undefined): s
   const SAFE_ID_REGEX = /^(?!\.{1,2}$)(?!.*\.\.)[a-zA-Z0-9_.#-]{1,64}$/;
 
   // 1. URL形式の場合 (share.html?id=...)
-  if (cleaned.startsWith('http://') || cleaned.startsWith('https://') || cleaned.includes('share.html')) {
+  if (/^https?:\/\//i.test(cleaned) || cleaned.includes('share.html')) {
     try {
       const base = typeof window !== 'undefined' ? window.location.href : 'https://takafumi06.github.io';
       const url = new URL(cleaned, base);
@@ -333,7 +333,7 @@ export function extractAttendeeIdFromQr(qrPayload: string | null | undefined): s
   if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
     try {
       const data = JSON.parse(cleaned);
-      const candidateId = data.id || data.attendee_id || data.discord_id;
+      const candidateId = data.id || data.attendee_id || data.discord_id || data.user_id || data.discord_user_id;
       if (candidateId && typeof candidateId === 'string' && SAFE_ID_REGEX.test(candidateId.trim())) {
         return candidateId.trim();
       }

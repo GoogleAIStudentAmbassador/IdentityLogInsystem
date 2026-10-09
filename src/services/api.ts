@@ -300,6 +300,85 @@ export async function loginUser(
 }
 
 /**
+ * ログイン中ユーザーの最新プロフィールおよび権限情報を取得します
+ * GET /api/user/me
+ */
+export async function fetchMyProfile(customToken?: string | null): Promise<RegistrationResult | null> {
+  const baseUrl = getApiBaseUrl();
+  const token =
+    customToken ||
+    getStoredAuthToken() ||
+    (() => {
+      try {
+        const sessionStr = localStorage.getItem('moffy_oauth_session');
+        if (sessionStr) {
+          const parsed = JSON.parse(sessionStr);
+          return parsed.accessToken || null;
+        }
+      } catch {}
+      return null;
+    })();
+
+  if (!token) return null;
+
+  try {
+    const apiKey = getApiKey();
+    const res = await fetch(`${baseUrl}/api/user/me`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+      },
+    });
+
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        return null;
+      }
+      return null;
+    }
+
+    const data = await res.json();
+    if (!data || !data.discord_user_id) return null;
+
+    const userResult: RegistrationResult = {
+      discord_user_id: data.discord_user_id,
+      name: data.name || data.display_name || null,
+      last_name: data.last_name || null,
+      first_name: data.first_name || null,
+      nickname: data.nickname || null,
+      display_name: data.display_name || data.nickname || null,
+      grade: data.grade || null,
+      university: data.university || null,
+      photo_url: data.photo_url || null,
+      default_photo_url: data.default_photo_url || null,
+      arranged_photo_url: data.arranged_photo_url || null,
+      created_at: data.created_at || new Date().toISOString(),
+      updated_at: data.updated_at || new Date().toISOString(),
+      google_id: data.google_id || null,
+      is_staff: Boolean(data.is_staff),
+      is_ambassador: Boolean(data.is_ambassador),
+      role: data.role || (data.is_ambassador ? 'ambassador' : 'guest'),
+      is_event_organizer: Boolean(data.is_event_organizer),
+    };
+
+    const extractedMbti =
+      extractMbtiFromUrl(userResult.arranged_photo_url) ||
+      extractMbtiFromUrl(userResult.default_photo_url) ||
+      extractMbtiFromUrl(userResult.photo_url);
+    if (extractedMbti) {
+      userResult.mbti = extractedMbti;
+    }
+
+    return userResult;
+  } catch (err) {
+    console.warn('[fetchMyProfile] Network error while fetching /api/user/me:', err);
+    return null;
+  }
+}
+
+
+/**
  * 公開設定から Google Client ID を取得します
  * GET /api/auth/config
  */

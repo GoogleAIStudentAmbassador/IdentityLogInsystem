@@ -91,18 +91,23 @@ export const EventsTab: React.FC<EventsTabProps> = ({
   // チェックイン取消権限（スタッフ、アンバサダー、主催者、事務局、管理者）
   const canDeleteCheckin = canCheckin;
 
-  const fetchEvents = useCallback(async () => {
+  const fetchEvents = useCallback(async (signal?: AbortSignal) => {
     setIsLoadingEvents(true);
     setErrorMsg(null);
     try {
-      const data = await eventService.getEvents(false);
-      setEvents(data);
-      setSelectedEvent((prev) => prev ?? (data[0] || null));
+      const data = await eventService.getEvents(false, signal);
+      if (!signal || !signal.aborted) {
+        setEvents(data);
+        setSelectedEvent((prev) => prev ?? (data[0] || null));
+      }
     } catch (err: unknown) {
+      if (signal && signal.aborted) return;
       const msg = err instanceof Error ? err.message : 'イベント一覧の取得に失敗しました。';
       setErrorMsg(msg);
     } finally {
-      setIsLoadingEvents(false);
+      if (!signal || !signal.aborted) {
+        setIsLoadingEvents(false);
+      }
     }
   }, []);
 
@@ -139,7 +144,11 @@ export const EventsTab: React.FC<EventsTabProps> = ({
   }, [selectedEvent]);
 
   useEffect(() => {
-    fetchEvents();
+    const controller = new AbortController();
+    fetchEvents(controller.signal);
+    return () => {
+      controller.abort();
+    };
   }, [fetchEvents]);
 
   // 🌟 [REACT 19 CONCURRENT & STALE CLOSURE PROOF]:
@@ -370,7 +379,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({
           )}
 
           <button
-            onClick={fetchEvents}
+            onClick={() => fetchEvents()}
             disabled={isLoadingEvents}
             className={`p-2 rounded-xl border transition-all cursor-pointer ${
               isDarkMode

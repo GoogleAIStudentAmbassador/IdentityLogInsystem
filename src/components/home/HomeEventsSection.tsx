@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, MapPin, Plus, ChevronRight, Loader2 } from 'lucide-react';
+import { Calendar, MapPin, Plus, ChevronRight, Loader2, Settings } from 'lucide-react';
 import type { EventItem } from '../../types';
 import type { AuthUser } from '../../utils/oauthClient';
 import { eventService } from '../../services/eventService';
@@ -23,13 +23,86 @@ export const HomeEventsSection: React.FC<HomeEventsSectionProps> = ({
   const [selectedEventForDetail, setSelectedEventForDetail] = useState<EventItem | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
 
+  // 招待受諾ステート
+  const [pendingInvitation, setPendingInvitation] = useState<{ eventId: string; token: string } | null>(null);
+  const [isAcceptingInvitation, setIsAcceptingInvitation] = useState(false);
+  const isAcceptingInvitationRef = useRef(false);
+  const [invitationMessage, setInvitationMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // 非同期通信のキャンセル & アンマウント時メモリリーク防止
   const abortControllerRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // 主催権限の判定 (RBAC)
   const isAdmin = Boolean(user?.role === 'admin' || user?.is_admin);
   const isBureau = Boolean(user?.role === 'bureau');
   const canCreateEvent = Boolean(user?.is_event_organizer || isAdmin || isBureau);
+
+  // URL招待パラメータの浄化ヘルパー
+  const sanitizeInvitationUrl = () => {
+    if (typeof window !== 'undefined' && window.history.replaceState) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('accept_invitation');
+        url.searchParams.delete('event_id');
+        window.history.replaceState({}, document.title, url.toString());
+      } catch {
+        // sandbox/iframe 制限環境での例外を安全に吸収
+      }
+    }
+  };
+
+  // URL招待パラメータの検知 (?accept_invitation=TOKEN&event_id=EVENT_ID)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const token = sp.get('accept_invitation');
+      const evId = sp.get('event_id');
+      if (token && evId) {
+        setPendingInvitation({ eventId: evId, token });
+      }
+    } catch {}
+  }, []);
+
+  const handleAcceptInvitation = async () => {
+    if (!pendingInvitation || isAcceptingInvitationRef.current) return;
+    isAcceptingInvitationRef.current = true;
+    setIsAcceptingInvitation(true);
+    setInvitationMessage(null);
+    try {
+      await eventService.acceptInvitation(pendingInvitation.eventId, pendingInvitation.token);
+      if (!isMountedRef.current) return;
+      setInvitationMessage({
+        type: 'success',
+        text: '共同編集者としての招待を受諾しました！主催者ダッシュボードからイベントを管理できます。',
+      });
+      // 招待完了時にステートを安全に解除（二重送信・エラー反転を物理遮断）
+      setPendingInvitation(null);
+      fetchEvents();
+
+      // URLパラメータの浄化（accept_invitation と event_id を同時に除去）
+      sanitizeInvitationUrl();
+    } catch (err: unknown) {
+      if (!isMountedRef.current) return;
+      setInvitationMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : '招待の受諾に失敗しました。期限切れまたは無効な招待です。',
+      });
+    } finally {
+      isAcceptingInvitationRef.current = false;
+      if (isMountedRef.current) {
+        setIsAcceptingInvitation(false);
+      }
+    }
+  };
 
   // イベント一覧取得
   const fetchEvents = useCallback(async () => {
@@ -124,24 +197,86 @@ export const HomeEventsSection: React.FC<HomeEventsSectionProps> = ({
           </h3>
         </div>
 
-        {/* 2-2 主催権限がある場合の「＋」イベント追加ボタン */}
+        {/* 2-2 主催権限がある場合の「管理」および「＋」イベント追加ボタン */}
         {canCreateEvent && (
-          <button
-            type="button"
-            onClick={() => setIsCreateModalOpen(true)}
-            aria-label="新しいイベントを作成"
-            title="新しいイベントを作成"
-            className={`min-w-[36px] min-h-[36px] px-2.5 py-1 rounded-xl text-xs font-medium transition cursor-pointer flex items-center gap-1 border ${
-              isDarkMode
-                ? 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700'
-                : 'bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border-neutral-200'
-            }`}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>追加</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <a
+              href="./organizer.html"
+              title="主催者ダッシュボード（抽選・QR読込・名簿）"
+              className={`min-w-[36px] min-h-[36px] px-2.5 py-1 rounded-xl text-xs font-medium transition cursor-pointer flex items-center gap-1 border ${
+                isDarkMode
+                  ? 'bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 border-neutral-700'
+                  : 'bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border-neutral-200'
+              }`}
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>管理</span>
+            </a>
+            <button
+              type="button"
+              onClick={() => setIsCreateModalOpen(true)}
+              aria-label="新しいイベントを作成"
+              title="新しいイベントを作成"
+              className={`min-w-[36px] min-h-[36px] px-2.5 py-1 rounded-xl text-xs font-medium transition cursor-pointer flex items-center gap-1 border ${
+                isDarkMode
+                  ? 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700'
+                  : 'bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border-neutral-200'
+              }`}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>追加</span>
+            </button>
+          </div>
         )}
       </div>
+
+      {/* 共同編集者招待の受諾バナー */}
+      {pendingInvitation && (
+        <div className={`mb-3.5 p-3.5 rounded-xl border space-y-2 ${
+          isDarkMode ? 'border-indigo-500/30 bg-indigo-950/30' : 'border-indigo-200 bg-indigo-50'
+        }`}>
+          <div className="space-y-0.5">
+            <span className="text-xs font-semibold text-indigo-400 block">
+              共同編集者への招待が届いています
+            </span>
+            <p className={`text-[11px] ${isDarkMode ? 'text-neutral-300' : 'text-neutral-600'}`}>
+              受諾すると、イベントの共同編集者として受付や名簿の管理が可能になります。
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAcceptInvitation}
+              disabled={isAcceptingInvitation}
+              className="flex-1 min-h-[36px] py-1.5 px-3 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition cursor-pointer disabled:opacity-50"
+            >
+              {isAcceptingInvitation ? '受諾処理中...' : '招待を受諾する'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingInvitation(null);
+                sanitizeInvitationUrl();
+              }}
+              className={`min-h-[36px] px-2.5 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer ${
+                isDarkMode ? 'border-neutral-700 text-neutral-400 hover:bg-neutral-800' : 'border-neutral-300 text-neutral-600 hover:bg-neutral-100'
+              }`}
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
+
+      {invitationMessage && (
+        <div className={`mb-3.5 p-3 rounded-xl border text-xs ${
+          invitationMessage.type === 'success'
+            ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300'
+            : 'border-rose-500/30 bg-rose-950/20 text-rose-300'
+        }`}>
+          {invitationMessage.text}
+        </div>
+      )}
 
       {/* イベントコンテンツ */}
       {isLoading ? (
@@ -229,6 +364,8 @@ export const HomeEventsSection: React.FC<HomeEventsSectionProps> = ({
         isOpen={Boolean(selectedEventForDetail)}
         onClose={() => setSelectedEventForDetail(null)}
         isDarkMode={isDarkMode}
+        canManage={canCreateEvent || Boolean(selectedEventForDetail?.editors?.includes(user?.discord_user_id || ''))}
+        onApplicationChanged={fetchEvents}
       />
 
       {/* イベント作成モーダル (主催権限所持時のみ) */}

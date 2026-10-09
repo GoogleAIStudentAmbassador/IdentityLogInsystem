@@ -11,7 +11,7 @@ import { FriendsTab } from './components/home/FriendsTab';
 import { EventsTab } from './components/home/EventsTab';
 import { FloatingBottomNav } from './components/home/FloatingBottomNav';
 import type { MainTab } from './components/home/FloatingBottomNav';
-import { getFriendList, getTutorialStatus, saveTutorialCompleted, getPublicProfile, getMoffyQuizData } from './services/api';
+import { getFriendList, getTutorialStatus, saveTutorialCompleted, getPublicProfile, getMoffyQuizData, fetchMyProfile } from './services/api';
 import { getDiscordAvatarUrl, fetchDiscordAvatarBlobUrl } from './services/discordApi';
 import { TUTORIAL_STEPS } from './types';
 import { TutorialOverlay } from './components/home/TutorialOverlay';
@@ -259,6 +259,27 @@ export const HomeApp: React.FC = () => {
       })
       .catch((err) => {
         console.warn('[HomeApp] Failed to sync profile with DB:', err);
+      });
+
+    // 1.1 最新の認証プロファイル・主催者権限（GET /api/user/me）を同期
+    fetchMyProfile()
+      .then((myProfile) => {
+        if (!isMounted || !myProfile) return;
+        setUser((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            role: myProfile.role || prev.role,
+            is_event_organizer: myProfile.is_event_organizer ?? prev.is_event_organizer,
+            is_staff: myProfile.is_staff ?? prev.is_staff,
+            is_ambassador: myProfile.is_ambassador ?? prev.is_ambassador,
+            isAmbassador: myProfile.is_ambassador ?? prev.isAmbassador,
+            is_admin: myProfile.role === 'admin' || myProfile.role === 'bureau' || prev.is_admin,
+          };
+        });
+      })
+      .catch((err) => {
+        console.warn('[HomeApp] Failed to sync user/me profile:', err);
       });
 
     // 2. DB上に過去の回答データが存在するか確認

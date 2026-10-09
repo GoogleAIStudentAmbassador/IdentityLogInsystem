@@ -451,8 +451,14 @@ export interface EventItem {
   location: string;
   capacity?: number | null;
   organizer_id: string;
+  organizer_name?: string | null;
+  editors?: string[];
   is_active: boolean;
   total_attendees: number;
+  requires_registration?: boolean;
+  total_applications?: number;
+  selected_count?: number;
+  selection_status?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -464,6 +470,102 @@ export interface CreateEventPayload {
   location: string;
   capacity?: number | null;
   is_active?: boolean;
+  requires_registration?: boolean;
+}
+
+export interface UpdateEventPayload {
+  title?: string;
+  description?: string | null;
+  event_date?: string;
+  location?: string;
+  capacity?: number | null;
+  is_active?: boolean;
+  requires_registration?: boolean;
+}
+
+export interface ApplicationInfo {
+  application_id: string;
+  event_id?: string;
+  user_id: string;
+  name?: string | null;
+  user_name?: string;
+  display_name?: string | null;
+  university?: string | null;
+  grade?: string | null;
+  photo_url?: string | null;
+  is_ambassador?: boolean;
+  status: 'applied' | 'selected' | 'waitlisted' | 'rejected' | 'cancelled';
+  motivation?: string | null;
+  applied_at: string;
+  updated_at?: string;
+  selected_at?: string | null;
+  selection_note?: string | null;
+}
+
+export interface ApplyEventPayload {
+  motivation?: string;
+}
+
+export interface EventInvitation {
+  invitation_id: string;
+  event_id: string;
+  event_title: string;
+  inviter_id: string;
+  inviter_name: string;
+  token: string;
+  role: string;
+  status: string;
+  created_at: string;
+  expires_at: string;
+  note?: string | null;
+  invitee_email?: string | null;
+  accepted_by?: string | null;
+  accepted_at?: string | null;
+}
+
+export interface CreateInvitationPayload {
+  role?: 'editor';
+  expires_in_hours?: number;
+  note?: string;
+  invitee_email?: string;
+}
+
+export interface CollaboratorInfo {
+  user_id: string;
+  name: string;
+  display_name?: string | null;
+  university?: string | null;
+  photo_url?: string | null;
+  role: string;
+  is_ambassador: boolean;
+}
+
+export interface EventCollaboratorsResponse {
+  status: string;
+  event_id: string;
+  organizer_id: string;
+  organizer_name?: string | null;
+  editors: CollaboratorInfo[];
+  active_invitations: EventInvitation[];
+}
+
+export interface LotterySelectionParams {
+  capacity: number;
+  ambassador_priority?: boolean;
+  waitlist_capacity?: number;
+  note?: string;
+}
+
+export interface SelectionExecutionResponse {
+  status: string;
+  strategy: string;
+  selected_count: number;
+  waitlisted_count: number;
+  rejected_count: number;
+  total_processed: number;
+  selected_users: string[];
+  waitlisted_users: string[];
+  message: string;
 }
 
 export interface AttendeeInfo {
@@ -493,4 +595,23 @@ export interface EventAttendeesResponse {
   event_id: string;
   total_attendees: number;
   attendees: AttendeeInfo[];
+}
+
+export interface UserEventHistoryItem {
+  event_id: string;
+  title: string;
+  event_date: string;
+  location: string;
+  requires_registration: boolean;
+  application_status?: string | null;
+  applied_at?: string | null;
+  checked_in: boolean;
+  checked_in_at?: string | null;
+}
+
+export interface UserEventHistoryResponse {
+  status: string;
+  user_id: string;
+  total_events: number;
+  events: UserEventHistoryItem[];
 }

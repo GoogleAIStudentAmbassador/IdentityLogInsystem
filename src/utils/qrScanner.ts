@@ -130,6 +130,9 @@ export class QrScannerEngine {
     this.canvasElement = document.createElement('canvas');
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (typeof window !== 'undefined' && !window.isSecureContext) {
+        throw new Error('カメラへのアクセスにはHTTPS接続またはlocalhostが必要です。');
+      }
       throw new Error('お使いのブラウザはカメラアクセスをサポートしていません。');
     }
 
@@ -238,36 +241,40 @@ export class QrScannerEngine {
           targetHeight = Math.round(videoHeight * scale);
         }
 
-        this.canvasElement.width = targetWidth;
-        this.canvasElement.height = targetHeight;
-        const ctx = this.canvasElement.getContext('2d', { willReadFrequently: true });
+        try {
+          this.canvasElement.width = targetWidth;
+          this.canvasElement.height = targetHeight;
+          const ctx = this.canvasElement.getContext('2d', { willReadFrequently: true });
 
-        if (ctx) {
-          ctx.drawImage(this.videoElement, 0, 0, targetWidth, targetHeight);
+          if (ctx) {
+            ctx.drawImage(this.videoElement, 0, 0, targetWidth, targetHeight);
 
-          const decoded = await this.activeStrategy.decode(
-            this.canvasElement,
-            ctx,
-            targetWidth,
-            targetHeight
-          );
+            const decoded = await this.activeStrategy.decode(
+              this.canvasElement,
+              ctx,
+              targetWidth,
+              targetHeight
+            );
 
-          if (decoded && this.isScanning) {
-            const isDifferent = decoded !== this.lastScannedData;
-            const isCooldownExpired = now - this.lastScannedTime > this.debounceMs;
+            if (decoded && this.isScanning) {
+              const isDifferent = decoded !== this.lastScannedData;
+              const isCooldownExpired = now - this.lastScannedTime > this.debounceMs;
 
-            if (isDifferent || isCooldownExpired) {
-              this.lastScannedData = decoded;
-              this.lastScannedTime = now;
+              if (isDifferent || isCooldownExpired) {
+                this.lastScannedData = decoded;
+                this.lastScannedTime = now;
 
-              if (this.onResultCallback) {
-                this.onResultCallback({
-                  data: decoded,
-                  timestamp: now,
-                });
+                if (this.onResultCallback) {
+                  this.onResultCallback({
+                    data: decoded,
+                    timestamp: now,
+                  });
+                }
               }
             }
           }
+        } catch {
+          // 一時的なフレーム描画エラーやデコード例外でRAFループが落ちるのを防止
         }
       }
     }

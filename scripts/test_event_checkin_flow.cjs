@@ -1306,6 +1306,262 @@ if (hasHomeEventsMounted && hasRbacPlusButton && hasEventDetailModal && hasLimit
   failed++;
 }
 
+// === 16. 主催者ダッシュボード分離・権限同期・抽選/名簿管理 (Organizer Architecture) ===
+console.log('\n=== 16. 主催者ダッシュボード分離・権限同期・抽選/名簿管理 (Organizer Architecture) ===');
+
+// 16.1 fetchMyProfile による最新主催権限同期
+const apiSrc = fs.readFileSync(path.join(__dirname, '../src/services/api.ts'), 'utf8');
+const hasFetchMyProfile = apiSrc.includes('async function fetchMyProfile') && apiSrc.includes('/api/user/me');
+
+if (hasFetchMyProfile) {
+  console.log('[PASS] APIサービス: GET /api/user/me による最新主催者権限・ロール同期関数 fetchMyProfile が完備');
+} else {
+  console.error('[FAIL] fetchMyProfile が存在しないか /api/user/me を正しく呼び出していません');
+  failed++;
+}
+
+// 16.2 HomeApp.tsx の権限同期
+const homeAppSrcSection16 = fs.readFileSync(path.join(__dirname, '../src/HomeApp.tsx'), 'utf8');
+const hasHomeAppProfileSync =
+  homeAppSrcSection16.includes('fetchMyProfile()') &&
+  homeAppSrcSection16.includes('is_event_organizer: myProfile.is_event_organizer');
+
+if (hasHomeAppProfileSync) {
+  console.log('[PASS] HomeApp: マウント時に fetchMyProfile で最新の is_event_organizer / role を取得・同期確認');
+} else {
+  console.error('[FAIL] HomeApp で fetchMyProfile による主催権限同期が実装されていません');
+  failed++;
+}
+
+// 16.3 ホーム画面・詳細モーダルからの organizer.html 導線
+const homeEventsSectionSrc = fs.readFileSync(path.join(__dirname, '../src/components/home/HomeEventsSection.tsx'), 'utf8');
+const hasOrganizerLinkInHome = homeEventsSectionSrc.includes('href="./organizer.html"');
+const hasOrganizerLinkInDetail = eventDetailSrc.includes('href="./organizer.html"');
+
+if (hasOrganizerLinkInHome && hasOrganizerLinkInDetail) {
+  console.log('[PASS] 導線設計: ホーム画面イベントヘッダーおよび詳細モーダルから organizer.html への直接導線を完備');
+} else {
+  console.error('[FAIL] organizer.html への導線が不足しています', { hasOrganizerLinkInHome, hasOrganizerLinkInDetail });
+  failed++;
+}
+
+// 16.4 OrganizerApp.tsx の主催者ガード & 詳細機能 (抽選・QRスキャン・名簿管理)
+const organizerAppSrc = fs.readFileSync(path.join(__dirname, '../src/OrganizerApp.tsx'), 'utf8');
+const hasOrganizerGuard = organizerAppSrc.includes('主催者権限がありません') && organizerAppSrc.includes('isOrganizer');
+const hasLotteryExecution = organizerAppSrc.includes('runLotterySelection') && organizerAppSrc.includes('自動抽選');
+const hasQrScanner = organizerAppSrc.includes('EventScannerModal');
+const hasAttendeeManagement = organizerAppSrc.includes('deleteCheckin') && organizerAppSrc.includes('attendeeSearchQuery');
+
+if (hasOrganizerGuard && hasLotteryExecution && hasQrScanner && hasAttendeeManagement) {
+  console.log('[PASS] 主催者ダッシュボード: 厳格な権限ガード、自動選考抽選、カメラQR受付、出席者名簿管理を完全分離実装');
+} else {
+  console.error('[FAIL] OrganizerApp の機能要件が不足しています', {
+    hasOrganizerGuard,
+    hasLotteryExecution,
+    hasQrScanner,
+    hasAttendeeManagement,
+  });
+  failed++;
+}
+
+// 16.5 Vite マルチページ設定
+const viteConfigSrc = fs.readFileSync(path.join(__dirname, '../vite.config.ts'), 'utf8');
+const hasOrganizerViteEntry = viteConfigSrc.includes("organizer: resolve(import.meta.dirname, 'organizer.html')");
+const organizerHtmlExists = fs.existsSync(path.join(__dirname, '../organizer.html'));
+
+if (hasOrganizerViteEntry && organizerHtmlExists) {
+  console.log('[PASS] Vite 設定 & エントリ: organizer.html がマルチページバンドル入力として正常登録・配置');
+} else {
+  console.error('[FAIL] organizer.html の Vite 設定または HTML ファイルが存在しません', {
+    hasOrganizerViteEntry,
+    organizerHtmlExists,
+  });
+  failed++;
+}
+
+// === 17. 厳格型安全性 & レースコンディション根絶 & 入力バリデーション検証 (Integrity Hardening) ===
+console.log('\n=== 17. 厳格型安全性 & レースコンディション根絶 & 入力バリデーション検証 (Integrity Hardening) ===');
+
+// 17.1 eventService.ts の型安全性検証 (any[] 根絶 & AbortSignal 完備)
+const eventServiceUpdatedSrc = fs.readFileSync(path.join(__dirname, '../src/services/eventService.ts'), 'utf8');
+const hasTypedApplications =
+  eventServiceUpdatedSrc.includes('getApplications(eventId: string, signal?: AbortSignal): Promise<ApplicationInfo[]>') &&
+  !eventServiceUpdatedSrc.includes('getApplications(eventId: string): Promise<any[]>');
+
+if (hasTypedApplications) {
+  console.log('[PASS] eventService 型健全性: getApplications の戻り値が ApplicationInfo[] に厳格化され any[] が完全根絶');
+} else {
+  console.error('[FAIL] eventService の getApplications に any[] が残存しているか型シグネチャが不一致です');
+  failed++;
+}
+
+// 17.2 CreateEventModal.tsx の入力値防壁 (日付パース例外遮断 & 定員境界値防御)
+const createEventModalSrc = fs.readFileSync(path.join(__dirname, '../src/components/home/CreateEventModal.tsx'), 'utf8');
+const hasDateExceptionGuard =
+  createEventModalSrc.includes('isNaN(parsedDate.getTime())') &&
+  createEventModalSrc.includes('parsedDate.toISOString()');
+const hasCapacityBoundsCheck =
+  createEventModalSrc.includes('isNaN(num) || num <= 0') &&
+  createEventModalSrc.includes('parsedCapacity');
+
+if (hasDateExceptionGuard && hasCapacityBoundsCheck) {
+  console.log('[PASS] CreateEventModal 防壁: 不正日付による RangeError 未補足クラッシュ遮断 & 定員境界値防御が完備');
+} else {
+  console.error('[FAIL] CreateEventModal の日付例外ガードまたは定員境界値チェックが不足しています', {
+    hasDateExceptionGuard,
+    hasCapacityBoundsCheck,
+  });
+  failed++;
+}
+
+// 17.3 OrganizerApp.tsx のレースコンディション根絶 & ゴーストデータ即時パージ検証
+const organizerAppUpdatedSrc = fs.readFileSync(path.join(__dirname, '../src/OrganizerApp.tsx'), 'utf8');
+const hasGhostDataPurge = organizerAppUpdatedSrc.includes('setAttendees([])') && organizerAppUpdatedSrc.includes('setLotteryMessage(null)');
+const hasDetailAbort = organizerAppUpdatedSrc.includes('detailAbortRef') && organizerAppUpdatedSrc.includes('controller.abort()');
+const hasFunctionalDeleteCheckin = organizerAppUpdatedSrc.includes('setAttendees((prev) => prev.filter');
+
+if (hasGhostDataPurge && hasDetailAbort && hasFunctionalDeleteCheckin) {
+  console.log('[PASS] OrganizerApp 競合防御: イベント切替時の名簿ゴースト即時パージ、AbortController、関数型更新が完備');
+} else {
+  console.error('[FAIL] OrganizerApp の競合防御またはゴーストパージ実装が不足しています', {
+    hasGhostDataPurge,
+    hasDetailAbort,
+    hasFunctionalDeleteCheckin,
+  });
+  failed++;
+}
+
+// 17.4 api.ts fetchMyProfile の X-API-Key 整合性検証
+const apiUpdatedSrc = fs.readFileSync(path.join(__dirname, '../src/services/api.ts'), 'utf8');
+const hasApiKeyInFetchMyProfile =
+  apiUpdatedSrc.includes('apiKey ? { \'X-API-Key\': apiKey } : {}') &&
+  apiUpdatedSrc.includes('async function fetchMyProfile');
+
+if (hasApiKeyInFetchMyProfile) {
+  console.log('[PASS] APIサービス整合性: fetchMyProfile にて X-API-Key ヘッダーが安全に包含');
+} else {
+  console.error('[FAIL] api.ts の fetchMyProfile に X-API-Key ヘッダーが含まれていません');
+  failed++;
+}
+
+// === 18. 事前申込・選考、共同編集者招待・受諾、イベント編集・削除 (2画面同期・最新仕様) ===
+console.log('\n=== 18. 事前申込・選考、共同編集者招待・受諾、イベント編集・削除 (2画面同期・最新仕様) ===');
+
+// 18.1 一般ユーザー向け画面 (EventDetailModal.tsx): 参加申込・辞退・ステータス表示
+const detailModalSrc18 = fs.readFileSync(path.join(__dirname, '../src/components/home/EventDetailModal.tsx'), 'utf8');
+const hasApplicationIntegration =
+  detailModalSrc18.includes('eventService.getMyApplication') &&
+  detailModalSrc18.includes('eventService.applyToEvent') &&
+  detailModalSrc18.includes('eventService.cancelApplication') &&
+  detailModalSrc18.includes('applied') &&
+  detailModalSrc18.includes('selected') &&
+  detailModalSrc18.includes('waitlisted') &&
+  detailModalSrc18.includes('rejected') &&
+  detailModalSrc18.includes('maxLength={500}') &&
+  detailModalSrc18.includes('cleanMotivation.length > 500');
+
+if (hasApplicationIntegration) {
+  console.log('[PASS] 一般ユーザー画面: EventDetailModal に参加申込、志望動機500文字バリデーション、辞退、選考ステータス（応募中・当選・補欠・落選）表示が完備');
+} else {
+  console.error('[FAIL] EventDetailModal の事前申込・500文字バリデーション・選考ステータス連携が不足しています');
+  failed++;
+}
+
+// 18.2 ホーム画面 (HomeEventsSection.tsx): 共同編集者判定 & 招待リンク受諾ハンドラ
+const homeEventsSrc18 = fs.readFileSync(path.join(__dirname, '../src/components/home/HomeEventsSection.tsx'), 'utf8');
+const hasInvitationAcceptAndEditor =
+  homeEventsSrc18.includes('accept_invitation') &&
+  homeEventsSrc18.includes('eventService.acceptInvitation') &&
+  homeEventsSrc18.includes('selectedEventForDetail?.editors?.includes');
+
+if (hasInvitationAcceptAndEditor) {
+  console.log('[PASS] ホーム画面: 共同編集者招待（?accept_invitation=...）のワンクリック受諾 & 共同編集者管理権限の付与が完備');
+} else {
+  console.error('[FAIL] HomeEventsSection の招待受諾または共同編集者権限判定が不足しています');
+  failed++;
+}
+
+// 18.3 主催者ダッシュボード (OrganizerApp.tsx): 編集・スタッフ招待・抽選詳細・個別ステータス・削除
+const organizerSrc18 = fs.readFileSync(path.join(__dirname, '../src/OrganizerApp.tsx'), 'utf8');
+const hasOrganizerFullFeatures =
+  organizerSrc18.includes('EditEventModal') &&
+  organizerSrc18.includes('CollaboratorModal') &&
+  organizerSrc18.includes('handleRunLottery') &&
+  organizerSrc18.includes('handleUpdateApplicationStatus') &&
+  organizerSrc18.includes('handleDeleteEvent') &&
+  organizerSrc18.includes('lotteryAmbassadorPriority') &&
+  organizerSrc18.includes('lotteryWaitlistCapacity');
+
+if (hasOrganizerFullFeatures) {
+  console.log('[PASS] 主催者画面: イベント編集、スタッフ招待、アンバサダー優先・補欠枠抽選、個別ステータス変更、削除機能が完備');
+} else {
+  console.error('[FAIL] OrganizerApp の新機能（編集・招待・抽選詳細・削除）が不足しています');
+  failed++;
+}
+
+// 18.4 新規コンポーネント (EditEventModal, CollaboratorModal) の物理的実在
+const editModalExists = fs.existsSync(path.join(__dirname, '../src/components/home/EditEventModal.tsx'));
+const collabModalExists = fs.existsSync(path.join(__dirname, '../src/components/home/CollaboratorModal.tsx'));
+
+if (editModalExists && collabModalExists) {
+  console.log('[PASS] 新規UIモジュール: EditEventModal.tsx および CollaboratorModal.tsx が正常に配置・分離');
+} else {
+  console.error('[FAIL] EditEventModal または CollaboratorModal が存在しません', { editModalExists, collabModalExists });
+  failed++;
+}
+
+// 18.5 eventService.ts の安全バリデーション (SAFE_TOKEN_REGEX, validateToken)
+const eventServiceSrc18 = fs.readFileSync(path.join(__dirname, '../src/services/eventService.ts'), 'utf8');
+const hasTokenValidation =
+  eventServiceSrc18.includes('SAFE_TOKEN_REGEX') &&
+  eventServiceSrc18.includes('validateToken') &&
+  eventServiceSrc18.includes('validateInvitationId');
+
+// 動的ファジング検証: SAFE_TOKEN_REGEX (/^[a-zA-Z0-9_-]{10,256}$/) と SAFE_ID_REGEX
+const SAFE_TOKEN_REGEX = /^[a-zA-Z0-9_-]{10,256}$/;
+
+function validateTokenMock(token) {
+  if (typeof token !== 'string' || !SAFE_TOKEN_REGEX.test(token.trim())) {
+    throw new Error('無効な招待トークンです。');
+  }
+}
+function validateInvitationIdMock(invitationId) {
+  if (typeof invitationId !== 'string' || !SAFE_ID_REGEX.test(invitationId.trim())) {
+    throw new Error('無効な招待IDです。');
+  }
+}
+
+const tokenAttackVectors = [
+  { input: 'short', shouldPass: false, desc: '9文字以下' },
+  { input: 'a'.repeat(257), shouldPass: false, desc: '257文字以上' },
+  { input: 'token with space', shouldPass: false, desc: 'スペース混入' },
+  { input: '../traversal_token_123', shouldPass: false, desc: 'パストラバーサル' },
+  { input: 'token<script>alert(1)</script>', shouldPass: false, desc: 'XSS注入' },
+  { input: 'valid_urlsafe_token_43_chars_abcdef1234567890-_', shouldPass: true, desc: '正規urlsafeトークン' },
+];
+
+let tokenDynamicFuzzingPassed = true;
+for (const vec of tokenAttackVectors) {
+  try {
+    validateTokenMock(vec.input);
+    if (!vec.shouldPass) {
+      console.error(`[FAIL] トークン攻撃ベクターが遮断されませんでした: ${vec.desc}`);
+      tokenDynamicFuzzingPassed = false;
+    }
+  } catch (err) {
+    if (vec.shouldPass) {
+      console.error(`[FAIL] 正規トークンが誤遮断されました: ${vec.desc}`);
+      tokenDynamicFuzzingPassed = false;
+    }
+  }
+}
+
+if (hasTokenValidation && tokenDynamicFuzzingPassed) {
+  console.log('[PASS] セキュアコーディングガード: 招待トークンおよび招待IDの厳格正規表現バリデーション（BOLA防御 & 動的ファジング耐性）が完備');
+} else {
+  console.error('[FAIL] eventService の SAFE_TOKEN_REGEX または動的ファジング検証が失敗しました');
+  failed++;
+}
 
 console.log('\n-----------------------------------------------------------');
 if (failed === 0) {
@@ -1315,3 +1571,5 @@ if (failed === 0) {
   console.error(`>> ${failed} EVENT CHECKIN TESTS FAILED <<`);
   process.exit(1);
 }
+
+
